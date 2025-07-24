@@ -36,3 +36,55 @@ Please download the [challenge image data](http://fungi.compute.dtu.dk:8080/down
 
 At the summer school, you will get a team name and its password, so you can login to the challenge site.
 
+### Team Dashboard
+
+At the team dashboard you can:
+- Buy more metadata for the training set
+- Download the current metadata
+- Upload predictions for the test and the final set
+
+
+### Getting your metadata
+
+To get your current metadata you should:
+- Press the **Generate your data** link
+- Press the **Get your data** link
+
+### Buying more metadata
+
+You buy metadata by preparing a CSV file and upload it in the Dashboard page. The entries/rows in the CSV file are **image name**, **metadata type**
+
+For example:
+
+```
+fungi_train000000.jpg,Habitat
+fungi_train000002.jpg,Latitude
+fungi_train000018.jpg,Longitude
+fungi_train000019.jpg,Substrate
+fungi_train000018.jpg,eventDate
+``` 
+
+Will spend five credits to buy the specified metadata for the specified photos.
+
+
+When you have bought metadata, you should *generate* and *get* your data.
+
+### Uploading predictions
+
+You upload predictions by preparing a CSV file, where each row contains the **image name** and the **label**
+
+**NOTE:** The first line of the CSV file should be a short textual description of the predicting method.
+
+When you have uploaded a prediction file, there should be a summary message at the bottom of the Dashboard page.
+
+## Getting started
+
+This should get you started in the challenge:
+
+- Download the image data
+- Login with your team name and password
+- Prepare your data
+- Get your data
+- Adapt and run the `random_fungi_predictions.py` example script found in the `src` folder.
+- Upload the predictions
+
