@@ -73,7 +73,7 @@ When you have bought metadata, you should *generate* and *get* your data.
 
 You upload predictions by preparing a CSV file, where each row contains the **image name** and the **label**
 
-**NOTE:** The first line of the CSV file should be a short textual description of the predicting method.
+**NOTE:** The first line of the CSV file should be a short textual description of the prediction method.
 
 Example:
 ```
