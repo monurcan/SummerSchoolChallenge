@@ -75,6 +75,16 @@ You upload predictions by preparing a CSV file, where each row contains the **im
 
 **NOTE:** The first line of the CSV file should be a short textual description of the predicting method.
 
+Example:
+```
+random_fungi_predictions
+fungi_test000000.jpg,99
+fungi_test000001.jpg,2
+fungi_test000002.jpg,107
+fungi_test000003.jpg,173
+...
+```
+
 When you have uploaded a prediction file, there should be a summary message at the bottom of the Dashboard page.
 
 ## Getting started
