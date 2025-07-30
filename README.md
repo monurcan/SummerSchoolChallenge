@@ -26,7 +26,7 @@ There are three sets of data in the challenge:
 
 ## Challenge web site
 
-The main challenge web site can be found [here](fungi.compute.dtu.dk:8080)
+The main challenge web site can be found [here](http://fungi.compute.dtu.dk:8080)
 
 ## Preparing for the challenge
 
