@@ -13,11 +13,11 @@ This challenge is focused on classifying Danish fungi by using photos of the fun
 There are 183 different types of fungi found in Denmark in this challenge. That means that the label is an integer in the range [0, 182].
 
 The metadata consists of:
-- The date when the photo was taken (day, month, year)
-- The latitude of the position of the fungi
-- The longitude of the position of the fungi
-- The habitat where the fungi was found (a textual description)
-- The substrate that the fungi was growing on (a textual description)
+- The **date** when the photo was taken (day, month, year)
+- The **latitude** of the position of the fungi
+- The **longitude** of the position of the fungi
+- The **habitat** where the fungi was found (a textual description)
+- The **substrate** that the fungi was growing on (a textual description)
 
 There are three sets of data in the challenge:
 - **Training** Where the photos are name `fungi_trainXXXXXX.jpg`, where XXXXXXX is a zero-padded integer. For the training set, the label (taxonID_index) is given and you can buy metadata (some is available at the start of the challenge).
@@ -31,6 +31,7 @@ The main challenge web site can be found [here](fungi.compute.dtu.dk:8080)
 ## Preparing for the challenge
 
 Please download the [challenge image data](http://fungi.compute.dtu.dk:8080/downloads/FungiImages.zip) before the challenge. It is 13 GB of data.
+Place the data on a cluster that you will have access to during the challenge.
 
 ## Team logins
 
@@ -43,12 +44,11 @@ At the team dashboard you can:
 - Download the current metadata
 - Upload predictions for the test and the final set
 
-
 ### Getting your metadata
 
 To get your current metadata you should:
-- Press the **Generate your data** link
-- Press the **Get your data** link
+- Press the **Generate your data** link on the Dashboard page.
+- Press the **Get your data** link on the Dashboard page.
 
 ### Buying more metadata
 
@@ -64,8 +64,7 @@ fungi_train000019.jpg,Substrate
 fungi_train000018.jpg,eventDate
 ``` 
 
-Will spend five credits to buy the specified metadata for the specified photos.
-
+This example will spend five credits to buy the specified metadata for the specified photos.
 
 When you have bought metadata, you should *generate* and *get* your data.
 
@@ -95,6 +94,7 @@ This should get you started in the challenge:
 - Login with your team name and password
 - Prepare your data
 - Get your data
-- Adapt and run the `random_fungi_predictions.py` example script found in the `src` folder.
+- Adapt and run the `random_fungi_predictions.py` example script found in the `src` folder
+- Use the basic image classification pipeline in `fungi_network.py` example script found in the `src` folder
 - Upload the predictions
 
