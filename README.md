@@ -52,7 +52,7 @@ To get your current metadata you should:
 
 ### Buying more metadata
 
-You buy metadata by preparing a CSV file and upload it in the Dashboard page. The entries/rows in the CSV file are **image name**, **metadata type**
+You buy metadata by preparing a CSV file and upload it in the Dashboard page. The entries/rows in the CSV file are **image name**, **metadata type**. You can use the script in `create_shoppinglist.py` found in the `src` folder to generate the .csv file in the correct format.
 
 For example:
 
