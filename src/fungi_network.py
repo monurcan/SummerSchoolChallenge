@@ -1,5 +1,4 @@
 import os
-import sys
 import pandas as pd
 import random
 import torch
@@ -14,12 +13,12 @@ from sklearn.metrics import classification_report, confusion_matrix, accuracy_sc
 from torchvision import models
 from sklearn.model_selection import train_test_split
 from logging import getLogger, DEBUG, FileHandler, Formatter, StreamHandler
-import time
 import tqdm
 import numpy as np
 from PIL import Image
 import time
 import csv
+from collections import Counter
 
 def ensure_folder(folder):
     """
@@ -107,7 +106,7 @@ class FungiDataset(Dataset):
 
         return image, label, file_path
 
-def train_fungi_network(nw_dir, image_path, checkpoint_dir):
+def train_fungi_network(data_file, image_path, checkpoint_dir):
     """
     Train the network and save the best models based on validation accuracy and loss.
     Incorporates early stopping with a patience of 10 epochs.
@@ -116,11 +115,10 @@ def train_fungi_network(nw_dir, image_path, checkpoint_dir):
     ensure_folder(checkpoint_dir)
 
     # Set Logger
-    csv_file_path  = os.path.join(checkpoint_dir, 'train.csv')
+    csv_file_path = os.path.join(checkpoint_dir, 'train.csv')
     initialize_csv_logger(csv_file_path)
 
     # Load metadata
-    data_file = os.path.join(nw_dir, "data/FungiImages/metadata.csv")
     df = pd.read_csv(data_file)
     train_df = df[df['filename_index'].str.startswith('fungi_train')]
     train_df, val_df = train_test_split(train_df, test_size=0.2, random_state=42)
@@ -234,7 +232,7 @@ def train_fungi_network(nw_dir, image_path, checkpoint_dir):
             print(f"Early stopping triggered. No improvement in validation loss for {patience} epochs.")
             break
 
-def evaluate_network_on_test_set(nw_dir, image_path, checkpoint_dir, session_name):
+def evaluate_network_on_test_set(data_file, image_path, checkpoint_dir, session_name):
     """
     Evaluate network on the test set and save predictions to a CSV file.
     """
@@ -243,7 +241,6 @@ def evaluate_network_on_test_set(nw_dir, image_path, checkpoint_dir, session_nam
 
     # Model and Test Setup
     best_trained_model = os.path.join(checkpoint_dir, "best_accuracy.pth")
-    data_file = os.path.join(nw_dir, "data/FungiImages/metadata.csv")
     output_csv_path = os.path.join(checkpoint_dir, "test_predictions.csv")
 
     df = pd.read_csv(data_file)
@@ -276,12 +273,18 @@ def evaluate_network_on_test_set(nw_dir, image_path, checkpoint_dir, session_nam
         writer.writerows(results)  # Write filenames and predictions
     print(f"Results saved to {output_csv_path}")
 
-
 if __name__ == "__main__":
+    # Path to fungi images
     image_path = '/novo/projects/shared_projects/eye_imaging/data/FungiImages/'
-    network_dir = "/novo/projects/shared_projects/eye_imaging/"
-    session = "trial"
-    checkpoint_dir = os.path.join(network_dir, f"code/FungiChallenge/results/{session}/")
+    # Path to metadata file
+    data_file = str('/novo/projects/shared_projects/eye_imaging/data/FungiImages/metadata.csv')
 
-    #train_fungi_network(network_dir, image_path, checkpoint_dir)
-    evaluate_network_on_test_set(network_dir, image_path, checkpoint_dir, session)
+    # Session name: Change session name for every experiment! 
+    # Session name will be saved as the first line of the prediction file
+    session = "EfficientNet"
+
+    # Folder for results of this experiment based on session name:
+    checkpoint_dir = os.path.join(f"/novo/projects/shared_projects/eye_imaging/code/FungiChallenge/results/{session}/")
+
+    train_fungi_network(data_file, image_path, checkpoint_dir)
+    evaluate_network_on_test_set(data_file, image_path, checkpoint_dir, session)
