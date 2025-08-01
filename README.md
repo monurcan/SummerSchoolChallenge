@@ -95,6 +95,7 @@ This should get you started in the challenge:
 - Use the basic image classification pipeline in `fungi_network.py` and train a network on the imaging data
 - Upload the predictions
 - Investigate the available metadata in the training set, and cultivate the ultimate strategy for your fungi-fueled team! 🍄
+- **Have fun(gi)!**
 
 ### Buying more metadata
 
