@@ -30,13 +30,10 @@ The stakes are clear: what if an AI could have flagged those mushrooms before tr
 
 Photos alone often don't tell the full story of a mushroom’s identity. Enter metadata, the contextual clues that surround the image:
 
-**Time (Seasonality):** Fungi are seasonal performers, sprouting in specific months. Metadata about the date offers critical cues into their behavior.
-
-**Location (Latitude and Longitude):** Where a fungus grows can often narrow down its identity, providing geographical hints specific to Denmark’s ecosystems.
-
-**Habitat:** A mushroom growing in dense, moist forests isn’t quite the same as one flourishing in open meadows—habitat descriptions matter!
-
-**Substrate:** What it grows on (tree stumps, soil, sand) is sometimes the biggest hint of all.
+- **Time (Seasonality):** Fungi are seasonal performers, sprouting in specific months. Metadata about the date offers critical cues into their behavior.
+- **Location (Latitude and Longitude):** Where a fungus grows can often narrow down its identity, providing geographical hints specific to Denmark’s ecosystems.
+- **Habitat:** A mushroom growing in dense, moist forests isn’t quite the same as one flourishing in open meadows—habitat descriptions matter!
+- **Substrate:** What it grows on (tree stumps, soil, sand) is sometimes the biggest hint of all.
 
 The real power comes from combining these two modalities—visual features and contextual metadata. While a photo may show a glorious mushroom cap, it’s the metadata that reveals the subtle cues hiding just beneath the surface: is it poisonous? Rare? Seasonal? Found only in one treasured corner of Denmark?
 
