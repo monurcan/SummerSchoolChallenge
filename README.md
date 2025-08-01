@@ -1,47 +1,73 @@
-# MultimodalDataChallenge2025
-Multimodal data challenge 2025 - a DTU Compute summer school challenge
+# Multimodal Fungi Challenge 2025 - Mushrooms, Metadata and Machine Learning!
+Welcome to Multimodal Fungi Challenge 2025, the DTU Compute summer school where algorithms meet mushrooms, and machine learning meets metadata! Strap on your data scientist hat (preferably fungus-shaped) because this challenge is going to be an exploration of Danish fungi like never before.
 
-The goal of this challenge is to develop and evaluate algorithms for multimodal learning and classification. 
+This challenge is made in conjunction with the [Ph. D. Summer school on multi-modal learning](https://multi-modal.compute.dtu.dk/).
 
-This challenge is focused on classifying Danish fungi by using photos of the fungi combined with a set of metadata. These are the main goals of the challenge:
-- Achieve the highest F1 score by predicting the true label (taxonID_index) of the fungi in the test and final set.
-- Implement different multimodal learning strategies including different ways of using the given metadata.
-- Find the set of metadata that gives the largest improvement in classification F1 scores.
+This summer school challenge revolves around multi-modal learning, thus combining multiple types of input data to create better and smarter classification models. 
+Your mission, should you choose to accept it, is to build a model that can correctly classify images of fungi using both the images and a treasure trove of fascinating metadata.
+
+You are tasked with answering questions like:
+- Is the fungus photogenic or just "photo-fungic"?
+- Does its habitat have the winning vibes of fungi?
+- Can latitude and longitude reveal the secret of mushroom mastery?
+- Does seasonality hold the key to its identity?
+- Can appearance be deceiving?
+
+Here’s what you need to conquer during the challenge:
+
+**Score That F1!** Develop a model to predict the right label and achieve sky-high F1 scores for fungus classification.
+**Mix It Up!** Explore different multimodal learning strategies, figuring out clever ways to leverage metadata.
+**Metadata Treasure Hunt!** Unearth what metadata helps the most in boosting classification performance.
+
+Let’s face it, this challenge isn’t just about cross-validation scores. It’s your chance to engage with multimodal data, experiment, and create fungi-classifying algorithms that would make both a biologist and a data scientist proud.
+So get ready to build clever pipelines, negotiate with metadata, and battle it out with other teams in the quest to become the Master of Mushrooms! Let’s bring both rigor and quirk to the Multimodal Fungi Challenge 2025. 🍄
+
+## Why fungi classification, and why multi-modal learning?
+Mushrooms, while often delicious, can toe the line between harmless delicacies and unexpected dangers. Accidental poisonings around the world highlight the need for reliable identification methods. In one chilling case in Australia, a woman is on trial for serving toxic fungi in a Beef Wellington and killing three people!
+The stakes are clear: what if an AI could have flagged those mushrooms before tragedy struck? Accurate fungi classification, powered by advanced algorithms, could save lives and prevent disasters where human judgment falls short.
+
+Photos alone often don't tell the full story of a mushroom’s identity. Enter metadata, the contextual clues that surround the image:
+
+**Time (Seasonality): **Fungi are seasonal performers, sprouting in specific months. Metadata about the date offers critical cues into their behavior.
+**Location (Latitude and Longitude): **Where a fungus grows can often narrow down its identity, providing geographical hints specific to Denmark’s ecosystems.
+**Habitat: **A mushroom growing in dense, moist forests isn’t quite the same as one flourishing in open meadows—habitat descriptions matter!
+**Substrate:** What it grows on (tree stumps, soil, sand) is sometimes the biggest hint of all.
+
+The real power comes from combining these two modalities—visual features and contextual metadata. While a photo may show a glorious mushroom cap, it’s the metadata that reveals the subtle cues hiding just beneath the surface: is it poisonous? Rare? Seasonal? Found only in one treasured corner of Denmark?
 
 ## Data
 
 There are 183 different types of fungi found in Denmark in this challenge. That means that the label is an integer in the range [0, 182].
 
 The metadata consists of:
-- The **date** when the photo was taken (day, month, year)
-- The **latitude** of the position of the fungi
-- The **longitude** of the position of the fungi
-- The **habitat** where the fungi was found (a textual description)
-- The **substrate** that the fungi was growing on (a textual description)
+- The 'eventDate' when the photo was taken (day, month, year)
+- The 'Latitude' of the position of the fungi
+- The 'Longitude' of the position of the fungi
+- The 'Habitat' where the fungi was found (textual description)
+- The 'Substrate' that the fungi was growing on (textual description)
 
 There are three sets of data in the challenge:
-- **Training** Where the photos are name `fungi_trainXXXXXX.jpg`, where XXXXXXX is a zero-padded integer. For the training set, the label (taxonID_index) is given and you can buy metadata (some is available at the start of the challenge).
-- **Testing** Where the photos are name `fungi_testXXXXXX.jpg`, where XXXXXXX is a zero-padded integer. This set is used to give team score during the challenge. All metadata is available and the true label should be predicted.
-- **Final** Where the photos are name `fungi_finalXXXXXX.jpg`, where XXXXXXX is a zero-padded integer. This set is used to compute the final challenge score. All metadata is available but and true label should be predicted.
+- **Training:** Where the photos are named `fungi_trainXXXXXX.jpg`, where XXXXXXX is a zero-padded integer. For the training set, the label (taxonID_index) is given and you can buy metadata (a subset of metadata is available at the start of the challenge).
+- **Testing:** Where the photos are named `fungi_testXXXXXX.jpg`, where XXXXXXX is a zero-padded integer. This set is used to give team score during the challenge. All metadata is available and the true label should be predicted.
+- **Final:** Where the photos are named `fungi_finalXXXXXX.jpg`, where XXXXXXX is a zero-padded integer. This set is used to compute the final challenge score. All metadata is available and true label should be predicted.
+
+## Preparing for the challenge
+- Please download the [challenge image data](http://fungi.compute.dtu.dk:8080/downloads/FungiImages.zip) before the challenge (13 GB of data).
+- Place the data on a cluster that you will have access to during the challenge (because fungi deserve room to grow... in processing power).
 
 ## Challenge web site
 
-The main challenge web site can be found [here](http://fungi.compute.dtu.dk:8080)
+The main challenge website can be found [here](http://fungi.compute.dtu.dk:8080)
 
-## Preparing for the challenge
-
-Please download the [challenge image data](http://fungi.compute.dtu.dk:8080/downloads/FungiImages.zip) before the challenge. It is 13 GB of data.
-Place the data on a cluster that you will have access to during the challenge.
-
-## Team logins
+### Team logins
 
 At the summer school, you will get a team name and its password, so you can login to the challenge site.
 
 ### Team Dashboard
 
-At the team dashboard you can:
+At the team dashboard on the challenge website on you can:
 - Buy more metadata for the training set
-- Download the current metadata
+- Download your current metadata
 - Upload predictions for the test and the final set
 
 ### Getting your metadata
@@ -49,6 +75,24 @@ At the team dashboard you can:
 To get your current metadata you should:
 - Press the **Generate your data** link on the Dashboard page.
 - Press the **Get your data** link on the Dashboard page.
+
+## Supplied Python Scripts
+In the 'src' folder you will find a few scripts to help you get started on your fungi adventure.
+- 'create_shoppinglist.py': Will help you prepare your metadata-shoppinglist and save it as an .csv file
+- 'fungi_network.py': Will train a simple EfficientNet for classification of fungi images and create predictions saved as a .csv file
+- 'random_fungi_predictions.py': Randomly assigns labels to the test set
+
+## Getting Started
+This should get you started in the challenge:
+
+- Download the image data
+- Login with your team name and password
+- Prepare your data
+- Get your data
+- Adapt and run the `random_fungi_predictions.py` example script
+- Use the basic image classification pipeline in `fungi_network.py` and train a network on the imaging data
+- Upload the predictions
+- Investigate the available metadata in the training set, and cultivate the ultimate strategy for your fungi-fueled team! 🍄
 
 ### Buying more metadata
 
@@ -85,16 +129,3 @@ fungi_test000003.jpg,173
 ```
 
 When you have uploaded a prediction file, there should be a summary message at the bottom of the Dashboard page.
-
-## Getting started
-
-This should get you started in the challenge:
-
-- Download the image data
-- Login with your team name and password
-- Prepare your data
-- Get your data
-- Adapt and run the `random_fungi_predictions.py` example script found in the `src` folder
-- Use the basic image classification pipeline in `fungi_network.py` example script found in the `src` folder
-- Upload the predictions
-
