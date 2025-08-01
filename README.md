@@ -40,11 +40,11 @@ The real power comes from combining these two modalities—visual features and c
 There are 183 different types of fungi found in Denmark in this challenge. That means that the label is an integer in the range [0, 182].
 
 The metadata consists of:
-- The 'eventDate' when the photo was taken (day, month, year)
-- The 'Latitude' of the position of the fungi
-- The 'Longitude' of the position of the fungi
-- The 'Habitat' where the fungi was found (textual description)
-- The 'Substrate' that the fungi was growing on (textual description)
+- The `eventDate` when the photo was taken (day, month, year)
+- The `Latitude` of the position of the fungi
+- The `Longitude` of the position of the fungi
+- The `Habitat` where the fungi was found (textual description)
+- The `Substrate` that the fungi was growing on (textual description)
 
 There are three sets of data in the challenge:
 - **Training:** Where the photos are named `fungi_trainXXXXXX.jpg`, where XXXXXXX is a zero-padded integer. For the training set, the label (taxonID_index) is given and you can buy metadata (a subset of metadata is available at the start of the challenge).
@@ -78,9 +78,9 @@ To get your current metadata you should:
 
 ## Supplied Python Scripts
 In the 'src' folder you will find a few scripts to help you get started on your fungi adventure.
-- 'create_shoppinglist.py': Will help you prepare your metadata-shoppinglist and save it as an .csv file
-- 'fungi_network.py': Will train a simple EfficientNet for classification of fungi images and create predictions saved as a .csv file
-- 'random_fungi_predictions.py': Randomly assigns labels to the test set
+- `create_shoppinglist.py`: Will help you prepare your metadata-shoppinglist and save it as an .csv file
+- `fungi_network.py`: Will train a simple EfficientNet for classification of fungi images and create predictions saved as a .csv file
+- `random_fungi_predictions.py`: Randomly assigns labels to the test set
 
 ## Getting Started
 This should get you started in the challenge:
