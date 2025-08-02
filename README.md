@@ -122,6 +122,8 @@ fungi_train000018.jpg,eventDate
 
 This example will spend eight credits to buy the specified metadata for the specified photos.
 
+When you have bought metadata, there should be a summary message at the bottom of the Dashboard page.
+
 When you have bought metadata, you should *generate* and *get* your data.
 
 ### Send more money - how much do I have?
