@@ -124,6 +124,10 @@ This example will spend eight credits to buy the specified metadata for the spec
 
 When you have bought metadata, you should *generate* and *get* your data.
 
+### Send more money - how much do I have?
+
+Each team starts with 20.000 credits. During the challenge, this amount increases with 20.000 every 12 hours.
+
 ### Uploading predictions
 
 You upload predictions by preparing a CSV file, where each row contains the **image name** and the **label**
