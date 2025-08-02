@@ -99,7 +99,16 @@ This should get you started in the challenge:
 
 ### Buying more metadata
 
-You buy metadata by preparing a CSV file and upload it in the Dashboard page. The entries/rows in the CSV file are **image name**, **metadata type**. You can use the script in `create_shoppinglist.py` found in the `src` folder to generate the .csv file in the correct format.
+You buy metadata by preparing a CSV file and upload it in the Dashboard page. 
+
+The meta data costs:
+- `eventDate` : 2 credits
+- `Latitude` : 1 credit
+- `Longitude` : 1 credit
+- `Habitat` : 2 credits
+- `Substrate` : 2 credits
+
+The entries/rows in the CSV file are **image name**, **metadata type**. You can use the script in `create_shoppinglist.py` found in the `src` folder to generate the .csv file in the correct format.
 
 For example:
 
@@ -111,7 +120,7 @@ fungi_train000019.jpg,Substrate
 fungi_train000018.jpg,eventDate
 ``` 
 
-This example will spend five credits to buy the specified metadata for the specified photos.
+This example will spend eight credits to buy the specified metadata for the specified photos.
 
 When you have bought metadata, you should *generate* and *get* your data.
 
