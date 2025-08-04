@@ -1,5 +1,5 @@
 # Multimodal Fungi Challenge 2025 - Mushrooms, Metadata and Machine Learning!
-Welcome to Multimodal Fungi Challenge 2025, the DTU Compute summer school where algorithms meet mushrooms, and machine learning meets metadata! Strap on your data scientist hat (preferably fungus-shaped) because this challenge is going to be an exploration of Danish fungi like never before.
+Welcome to Multimodal Fungi Challenge 2025, the summer school challenge where algorithms meet mushrooms, and machine learning meets metadata! Strap on your data scientist hat (preferably fungus-shaped) because this challenge is going to be an exploration of Danish fungi like never before.
 
 This challenge is made in conjunction with the [Ph. D. Summer school on multi-modal learning](https://multi-modal.compute.dtu.dk/).
 
@@ -22,7 +22,7 @@ Here’s what you need to conquer during the challenge:
 **Metadata Treasure Hunt!** Unearth what metadata helps the most in boosting classification performance.
 
 Let’s face it, this challenge isn’t just about cross-validation scores. It’s your chance to engage with multimodal data, experiment, and create fungi-classifying algorithms that would make both a biologist and a data scientist proud.
-So get ready to build clever pipelines, negotiate with metadata, and battle it out with other teams in the quest to become the Master of Mushrooms! Let’s bring both rigor and quirk to the Multimodal Fungi Challenge 2025. 🍄
+So get ready to build clever pipelines, negotiate with metadata, and battle it out with other teams in the quest to become the Master of Mushrooms! Let’s bring both rigor and innovation to the Multimodal Fungi Challenge 2025. 🍄
 
 ## Why fungi classification, and why multi-modal learning?
 Mushrooms, while often delicious, can toe the line between harmless delicacies and unexpected dangers. Accidental poisonings around the world highlight the need for reliable identification methods. In one chilling case in Australia, a woman is on trial for serving toxic fungi in a Beef Wellington and killing three people!
