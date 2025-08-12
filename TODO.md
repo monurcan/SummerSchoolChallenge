@@ -6,6 +6,8 @@ img cls.
 
 - focal loss for training to address class imbalance
 
+tta
+
 
 TODO:
 
@@ -13,12 +15,13 @@ active feature acquisition
 
 - loss based (image only classifier): metadata is too sparse for now, we cannot do anything with them. this is a good starting point
 
-- cmi / cost based imputation model, transformer mae  like training. use test and validation! 
+- also combine loss based selection with cmi / cost based selection (requires imputation model, transformer mae  like training. use test and validation!)
+
 ![alt text](assets/cmi_simplify.png)
 here x_i: missing features, x_s: available features
 divide the cmi by the cost
 
-first, train p(x_i | x_s) model: xgboost can be a good option for the tabular data.
+first, train p(x_i | x_s) model: xgboost could be a good option for the tabular data but we also have image input. so, vit can be a good option, mae like training.
 
 then, train p(y | x_i, x_s) model: vit can be a good option. oscar is doing it.
     sometimes use -1 masked embedding for the missing features. 
@@ -26,9 +29,7 @@ then, train p(y | x_i, x_s) model: vit can be a good option. oscar is doing it.
 
 then use this model acquire features using cmi / cost
 
-tta
 
-- augment image and aggregate the class predictions
 
 final day:
 

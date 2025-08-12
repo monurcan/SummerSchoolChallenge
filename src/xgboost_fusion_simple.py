@@ -22,6 +22,7 @@ class SimpleXGBoostFusion:
         self.output_dir = output_dir
         self.model = None
         self.label_encoder = LabelEncoder()
+        self.categorical_mappings = {}
 
     def load_data(self, features_dir):
         """Load the unified dataset with vector-based features."""
@@ -38,6 +39,8 @@ class SimpleXGBoostFusion:
         Minimal feature preparation - let XGBoost handle the complexity.
         Works with vector-based feature columns.
         """
+        print(df)
+
         # Extract features from vector columns
         image_features = np.vstack(df["image_features_vector"].values)
         prob_features = np.vstack(df["class_probabilities_vector"].values)
@@ -74,11 +77,30 @@ class SimpleXGBoostFusion:
         # Add simple metadata features
         metadata_features = []
 
-        # Add categorical text features directly (XGBoost handles them)
+        # Add categorical text features with consistent encoding
         for col in ["Habitat", "Substrate"]:
             if col in X.columns:
-                # Convert to categorical dtype for XGBoost
-                X[col] = X[col].astype("category")
+                if is_train:
+                    # Fit categories on training data and store them
+                    X[col] = X[col].astype("category")
+                    if not hasattr(self, "categorical_mappings"):
+                        self.categorical_mappings = {}
+                    self.categorical_mappings[col] = X[col].cat.categories
+                else:
+                    # Use the same categories from training
+                    if (
+                        hasattr(self, "categorical_mappings")
+                        and col in self.categorical_mappings
+                    ):
+                        X[col] = pd.Categorical(
+                            X[col], categories=self.categorical_mappings[col]
+                        )
+                    else:
+                        # Fallback if mapping not found
+                        raise ValueError(
+                            f"Categorical mapping for {col} not found. Ensure model was trained with this column."
+                        )
+
                 metadata_features.append(col)
 
         # Add numerical features directly
@@ -113,6 +135,52 @@ class SimpleXGBoostFusion:
         all_features = feature_cols + metadata_features
         final_X = X[all_features].copy()
 
+        # Debug categorical encoding
+        print(
+            f"\n=== CATEGORICAL ENCODING DEBUG ({'TRAIN' if is_train else 'TEST'}) ==="
+        )
+        for col in ["Habitat", "Substrate"]:
+            if col in final_X.columns:
+                print(f"\n{col}:")
+                print(f"  Raw unique values: {sorted(df[col].dropna().unique())}")
+                print(f"  Number of raw unique: {df[col].nunique()}")
+
+                if hasattr(final_X[col], "cat"):
+                    print(
+                        f"  Categories in final_X: {list(final_X[col].cat.categories)}"
+                    )
+                    print(
+                        f"  Codes in final_X: {sorted(final_X[col].cat.codes.dropna().unique())}"
+                    )
+                    print(
+                        f"  Missing values (coded as -1): {(final_X[col].cat.codes == -1).sum()}"
+                    )
+
+                    if (
+                        hasattr(self, "categorical_mappings")
+                        and col in self.categorical_mappings
+                    ):
+                        print(
+                            f"  Stored training categories: {list(self.categorical_mappings[col])}"
+                        )
+
+                        # Check for categories in test that weren't in training
+                        test_categories = set(df[col].dropna().unique())
+                        train_categories = set(self.categorical_mappings[col])
+                        new_categories = test_categories - train_categories
+                        if new_categories:
+                            print(
+                                f"  ⚠️  NEW CATEGORIES IN TEST: {sorted(new_categories)}"
+                            )
+                        missing_categories = train_categories - test_categories
+                        if missing_categories:
+                            print(
+                                f"  📝 MISSING CATEGORIES IN TEST: {sorted(missing_categories)}"
+                            )
+                else:
+                    print("  Not categorical in final_X")
+        print("=" * 60)
+
         return final_X
 
     def train(self, features_dir, debug_subset=None):
@@ -138,7 +206,7 @@ class SimpleXGBoostFusion:
         # Split into train and validation sets
         print("Splitting data into train/validation...")
         train_split, val_split = train_test_split(
-            train_df, test_size=0.2, random_state=42, stratify=train_df["true_label"]
+            train_df, test_size=0.01, random_state=42, stratify=train_df["true_label"]
         )
 
         print(f"Train split: {len(train_split)} samples")
@@ -292,7 +360,14 @@ class SimpleXGBoostFusion:
         # Save model and label encoder
         model_file = os.path.join(self.output_dir, "xgboost_fusion_model.pkl")
         with open(model_file, "wb") as f:
-            pickle.dump({"model": self.model, "label_encoder": self.label_encoder}, f)
+            pickle.dump(
+                {
+                    "model": self.model,
+                    "label_encoder": self.label_encoder,
+                    "categorical_mappings": self.categorical_mappings,
+                },
+                f,
+            )
 
         # Save feature importance
         importance_file = os.path.join(self.output_dir, "feature_importance.csv")
