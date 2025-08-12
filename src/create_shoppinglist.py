@@ -10,7 +10,7 @@ data = [
 ]
 
 # Specify the output file name
-output_file = "shoppinglist.csv"
+output_file = "/work3/monka/SummerSchool2025/shoppinglist.csv"
 
 # Write data to the CSV file
 with open(output_file, mode="w", newline="") as csv_file:

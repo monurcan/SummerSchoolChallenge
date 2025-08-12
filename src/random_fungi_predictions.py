@@ -4,12 +4,12 @@ import pandas as pd
 
 def do_random_fungi_predictions():
     n_classes = 183
-    method_name = 'random_fungi_predictions'
+    method_name = "random_fungi_predictions"
 
-    metadata_file = 'C:/data/Danish Fungi/DF-10-06-2025/testuploads/Puffballs/metadata.csv'
-    predictions_out = 'C:/data/Danish Fungi/DF-10-06-2025/testuploads/predictions_6.csv'
+    metadata_file = "/work3/monka/SummerSchool2025/metadata.csv"
+    predictions_out = "/work3/monka/SummerSchool2025/predictions_6.csv"
 
-    f_out = open(predictions_out, 'w')
+    f_out = open(predictions_out, "w")
     f_out.write(f"{method_name}\n")
 
     # Read the metadata from the csv file using pandas
@@ -19,11 +19,10 @@ def do_random_fungi_predictions():
     df = pd.read_csv(metadata_file, header=None)
     for index, row in df.iterrows():
         filename = row[0]
-        if 'test' in filename:
+        if "test" in filename:
             prediction = random.randint(0, n_classes - 1)
             f_out.write(f"{filename},{prediction}\n")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     do_random_fungi_predictions()
-

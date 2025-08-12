@@ -3,7 +3,7 @@ import pandas as pd
 import random
 import torch
 import torch.nn as nn
-from torch.optim import Adam
+from torch.optim import AdamW
 from torch.utils.data import DataLoader, Dataset
 from albumentations import Compose, Normalize, Resize
 from albumentations import (
@@ -11,6 +11,15 @@ from albumentations import (
     HorizontalFlip,
     VerticalFlip,
     RandomBrightnessContrast,
+    ColorJitter,
+    GaussNoise,
+    RandomRotate90,
+    ShiftScaleRotate,
+    CoarseDropout,
+    RandomGamma,
+    CLAHE,
+    Blur,
+    OneOf,
 )
 from albumentations.pytorch import ToTensorV2
 from torch.optim.lr_scheduler import ReduceLROnPlateau
@@ -24,6 +33,35 @@ from PIL import Image
 import time
 import csv
 from collections import Counter
+
+
+class FocalLoss(nn.Module):
+    """
+    Focal Loss for addressing class imbalance.
+
+    Args:
+        alpha (float): Weighting factor for rare class (default: 1.0)
+        gamma (float): Focusing parameter (default: 2.0)
+        reduction (str): Specifies the reduction to apply to the output
+    """
+
+    def __init__(self, alpha=1.0, gamma=2.0, reduction="mean"):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+
+    def forward(self, inputs, targets):
+        ce_loss = nn.functional.cross_entropy(inputs, targets, reduction="none")
+        pt = torch.exp(-ce_loss)
+        focal_loss = self.alpha * (1 - pt) ** self.gamma * ce_loss
+
+        if self.reduction == "mean":
+            return focal_loss.mean()
+        elif self.reduction == "sum":
+            return focal_loss.sum()
+        else:
+            return focal_loss
 
 
 def ensure_folder(folder):
@@ -82,9 +120,36 @@ def get_transforms(data):
         return Compose(
             [
                 RandomResizedCrop((width, height), scale=(0.8, 1.0)),
-                HorizontalFlip(p=0.5),
-                VerticalFlip(p=0.5),
-                RandomBrightnessContrast(p=0.2),
+                OneOf(
+                    [
+                        HorizontalFlip(p=1.0),
+                        VerticalFlip(p=1.0),
+                        RandomRotate90(p=1.0),
+                    ],
+                    p=0.7,
+                ),
+                OneOf(
+                    [
+                        ColorJitter(
+                            brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=1.0
+                        ),
+                        RandomBrightnessContrast(p=1.0),
+                        RandomGamma(gamma_limit=(80, 120), p=1.0),
+                    ],
+                    p=0.5,
+                ),
+                OneOf(
+                    [
+                        GaussNoise(var_limit=(10.0, 50.0), p=1.0),
+                        Blur(blur_limit=3, p=1.0),
+                    ],
+                    p=0.3,
+                ),
+                ShiftScaleRotate(
+                    shift_limit=0.1, scale_limit=0.1, rotate_limit=15, p=0.3
+                ),
+                CoarseDropout(max_holes=8, max_height=16, max_width=16, p=0.3),
+                CLAHE(clip_limit=2.0, p=0.2),
                 Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
                 ToTensorV2(),
             ]
@@ -169,7 +234,7 @@ def train_fungi_network(data_file, image_path, checkpoint_dir):
 
     # Network Setup
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = models.efficientnet_b0(pretrained=True)
+    model = models.efficientnet_b2(pretrained=True)
     model.classifier = nn.Sequential(
         nn.Dropout(0.2),
         nn.Linear(
@@ -179,9 +244,9 @@ def train_fungi_network(data_file, image_path, checkpoint_dir):
     model.to(device)
 
     # Define Optimization, Scheduler, and Criterion
-    optimizer = Adam(model.parameters(), lr=0.001)
+    optimizer = AdamW(model.parameters(), lr=3e-4, weight_decay=1e-5)
     scheduler = ReduceLROnPlateau(optimizer, "min", factor=0.9, patience=1, eps=1e-6)
-    criterion = nn.CrossEntropyLoss()
+    criterion = FocalLoss(alpha=1.0, gamma=0.4, reduction="mean")
 
     # Early stopping setup
     patience = 10
@@ -306,7 +371,7 @@ def evaluate_network_on_test_set(data_file, image_path, checkpoint_dir, session_
     test_loader = DataLoader(test_dataset, batch_size=512, shuffle=False, num_workers=4)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = models.efficientnet_b0(pretrained=True)
+    model = models.efficientnet_b2(pretrained=True)
     model.classifier = nn.Sequential(
         nn.Dropout(0.2),
         nn.Linear(model.classifier[1].in_features, 183),  # Number of classes
@@ -341,7 +406,7 @@ if __name__ == "__main__":
 
     # Session name: Change session name for every experiment!
     # Session name will be saved as the first line of the prediction file
-    session = "EfficientNet"
+    session = "EfficientNetB2_FocalLossLess"
 
     # Folder for results of this experiment based on session name:
     checkpoint_dir = os.path.join(f"/work3/monka/SummerSchool2025/results/{session}/")

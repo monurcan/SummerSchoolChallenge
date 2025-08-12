@@ -173,3 +173,6 @@ __MACOSX/
 *_RAPADEBUG*
 
 
+#
+.python-version
+uv.lock
