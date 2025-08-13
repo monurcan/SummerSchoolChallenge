@@ -31,6 +31,8 @@ class ConfigurableXGBoostFusion:
             "use_prediction_confidence": True,
             "use_prediction_entropy": True,
             "use_metadata_features": True,
+            "metadata_multiply_image_fusion": False,
+            "metadata_fusion_temperature": 2.0,
         }
 
         # Update with user config
@@ -53,6 +55,13 @@ class ConfigurableXGBoostFusion:
             f"  ✅ Prediction entropy: {self.feature_config['use_prediction_entropy']}"
         )
         print(f"  ✅ Metadata features: {self.feature_config['use_metadata_features']}")
+        print(
+            f"  🔄 Metadata multiply image fusion: {self.feature_config['metadata_multiply_image_fusion']}"
+        )
+        if self.feature_config.get("metadata_multiply_image_fusion", False):
+            print(
+                f"  🌡️  Fusion temperature: {self.feature_config['metadata_fusion_temperature']}"
+            )
 
     def load_data(self, features_dir):
         """Load the unified dataset with vector-based features."""
@@ -132,10 +141,14 @@ class ConfigurableXGBoostFusion:
                 if col in features_combined.columns:
                     if is_train:
                         # Fit categories on training data and store them
-                        features_combined[col] = features_combined[col].astype("category")
+                        features_combined[col] = features_combined[col].astype(
+                            "category"
+                        )
                         if not hasattr(self, "categorical_mappings"):
                             self.categorical_mappings = {}
-                        self.categorical_mappings[col] = features_combined[col].cat.categories
+                        self.categorical_mappings[col] = features_combined[
+                            col
+                        ].cat.categories
                     else:
                         # Use the same categories from training
                         if (
@@ -143,7 +156,8 @@ class ConfigurableXGBoostFusion:
                             and col in self.categorical_mappings
                         ):
                             features_combined[col] = pd.Categorical(
-                                features_combined[col], categories=self.categorical_mappings[col]
+                                features_combined[col],
+                                categories=self.categorical_mappings[col],
                             )
                         else:
                             # Fallback if mapping not found
@@ -198,30 +212,47 @@ class ConfigurableXGBoostFusion:
         final_X = features_combined[all_features].copy()
 
         # Debug categorical encoding
-        print(f"\n=== CATEGORICAL ENCODING DEBUG ({'TRAIN' if is_train else 'TEST'}) ===")
+        print(
+            f"\n=== CATEGORICAL ENCODING DEBUG ({'TRAIN' if is_train else 'TEST'}) ==="
+        )
         for col in ["Habitat", "Substrate"]:
             if col in final_X.columns:
                 print(f"\n{col}:")
                 print(f"  Raw unique values: {sorted(df[col].dropna().unique())}")
                 print(f"  Number of raw unique: {df[col].nunique()}")
-                
-                if hasattr(final_X[col], 'cat'):
-                    print(f"  Categories in final_X: {list(final_X[col].cat.categories)}")
-                    print(f"  Codes in final_X: {sorted(final_X[col].cat.codes.dropna().unique())}")
-                    print(f"  Missing values (coded as -1): {(final_X[col].cat.codes == -1).sum()}")
-                    
-                    if hasattr(self, 'categorical_mappings') and col in self.categorical_mappings:
-                        print(f"  Stored training categories: {list(self.categorical_mappings[col])}")
-                        
+
+                if hasattr(final_X[col], "cat"):
+                    print(
+                        f"  Categories in final_X: {list(final_X[col].cat.categories)}"
+                    )
+                    print(
+                        f"  Codes in final_X: {sorted(final_X[col].cat.codes.dropna().unique())}"
+                    )
+                    print(
+                        f"  Missing values (coded as -1): {(final_X[col].cat.codes == -1).sum()}"
+                    )
+
+                    if (
+                        hasattr(self, "categorical_mappings")
+                        and col in self.categorical_mappings
+                    ):
+                        print(
+                            f"  Stored training categories: {list(self.categorical_mappings[col])}"
+                        )
+
                         # Check for categories in test that weren't in training
                         test_categories = set(df[col].dropna().unique())
                         train_categories = set(self.categorical_mappings[col])
                         new_categories = test_categories - train_categories
                         if new_categories:
-                            print(f"  ⚠️  NEW CATEGORIES IN TEST: {sorted(new_categories)}")
+                            print(
+                                f"  ⚠️  NEW CATEGORIES IN TEST: {sorted(new_categories)}"
+                            )
                         missing_categories = train_categories - test_categories
                         if missing_categories:
-                            print(f"  📝 MISSING CATEGORIES IN TEST: {sorted(missing_categories)}")
+                            print(
+                                f"  📝 MISSING CATEGORIES IN TEST: {sorted(missing_categories)}"
+                            )
                 else:
                     print("  Not categorical in final_X")
         print("=" * 60)
@@ -243,6 +274,28 @@ class ConfigurableXGBoostFusion:
 
         print(f"Training samples: {len(train_df)}")
         print(f"Classes: {train_df['true_label'].nunique()}")
+
+        # Handle special metadata fusion strategy
+        original_fusion_flag = self.feature_config.get(
+            "metadata_multiply_image_fusion", False
+        )
+
+        if original_fusion_flag:
+            print("🔄 Special metadata fusion strategy detected!")
+            print(
+                "   Training metadata-only model, fusion will happen during validation..."
+            )
+            # Force metadata-only configuration for training
+            original_config = self.feature_config.copy()
+            self.feature_config.update(
+                {
+                    "use_image_features": False,
+                    "use_class_probabilities": False,
+                    "use_prediction_confidence": False,
+                    "use_prediction_entropy": False,
+                    "use_metadata_features": True,
+                }
+            )
 
         # Split into train and validation sets
         print("Splitting data into train/validation...")
@@ -307,8 +360,88 @@ class ConfigurableXGBoostFusion:
 
         # Evaluate on validation set
         print("\nValidation performance...")
-        val_predictions_encoded = self.model.predict(X_val)
-        val_predictions = self.label_encoder.inverse_transform(val_predictions_encoded)
+
+        # Check if we need special metadata fusion
+        if original_fusion_flag:
+            print("🔄 Applying metadata multiply image fusion for validation...")
+
+            # Get metadata-only predictions (smoothed)
+            metadata_probabilities = self.model.predict_proba(X_val)
+            # Apply smoothing to metadata probabilities (temperature scaling)
+            temperature = self.feature_config.get("metadata_fusion_temperature", 2.0)
+            metadata_probabilities_smoothed = np.exp(
+                np.log(metadata_probabilities + 1e-8) / temperature
+            )
+            metadata_probabilities_smoothed = (
+                metadata_probabilities_smoothed
+                / metadata_probabilities_smoothed.sum(axis=1, keepdims=True)
+            )
+
+            # Get image-only predictions from class probabilities in the data
+            # Restore original config temporarily to get image features
+            temp_config = {
+                "use_image_features": False,
+                "use_class_probabilities": True,  # This contains image model predictions
+                "use_prediction_confidence": False,
+                "use_prediction_entropy": False,
+                "use_metadata_features": False,
+            }
+            self.feature_config.update(temp_config)
+            self.feature_config["metadata_multiply_image_fusion"] = False
+
+            # Get image-only features (class probabilities)
+            X_val_image = self.prepare_features(val_split, feature_info, is_train=False)
+
+            # Extract image probabilities (they are the class_prob columns)
+            image_prob_cols = [
+                col for col in X_val_image.columns if col.startswith("class_prob_")
+            ]
+            if image_prob_cols:
+                image_probabilities = X_val_image[image_prob_cols].values
+                # Normalize to ensure they sum to 1
+                image_probabilities = image_probabilities / image_probabilities.sum(
+                    axis=1, keepdims=True
+                )
+
+                # Multiply image probabilities with smoothed metadata probabilities
+                fused_probabilities = (
+                    image_probabilities * metadata_probabilities_smoothed
+                )
+                fused_probabilities = fused_probabilities / fused_probabilities.sum(
+                    axis=1, keepdims=True
+                )
+
+                # Get predictions from fused probabilities
+                val_predictions_encoded = np.argmax(fused_probabilities, axis=1)
+                val_predictions = self.label_encoder.inverse_transform(
+                    val_predictions_encoded
+                )
+
+                print(f"  📊 Image probs shape: {image_probabilities.shape}")
+                print(
+                    f"  🌍 Metadata probs shape: {metadata_probabilities_smoothed.shape}"
+                )
+                print(f"  🔄 Fused probs shape: {fused_probabilities.shape}")
+            else:
+                print(
+                    "  ⚠️  No image probabilities found, using metadata-only predictions"
+                )
+                val_predictions_encoded = self.model.predict(X_val)
+                val_predictions = self.label_encoder.inverse_transform(
+                    val_predictions_encoded
+                )
+
+            # Restore original config
+            self.feature_config = original_config.copy()
+            self.feature_config["metadata_multiply_image_fusion"] = original_fusion_flag
+
+        else:
+            # Standard validation evaluation
+            val_predictions_encoded = self.model.predict(X_val)
+            val_predictions = self.label_encoder.inverse_transform(
+                val_predictions_encoded
+            )
+
         val_f1 = f1_score(y_val, val_predictions, average="weighted")
         val_accuracy = accuracy_score(y_val, val_predictions)
 
@@ -351,11 +484,84 @@ class ConfigurableXGBoostFusion:
         print("Preparing test features...")
         X_test = self.prepare_features(test_df, feature_info, is_train=False)
 
-        # Predict
-        print("Generating predictions...")
-        predictions_encoded = self.model.predict(X_test)
-        predictions = self.label_encoder.inverse_transform(predictions_encoded)
-        probabilities = self.model.predict_proba(X_test)
+        # Check if we need special metadata fusion for test predictions
+        if self.feature_config.get("metadata_multiply_image_fusion", False):
+            print("🔄 Applying metadata multiply image fusion for test predictions...")
+
+            # Get metadata-only predictions (smoothed)
+            metadata_probabilities = self.model.predict_proba(X_test)
+            # Apply smoothing to metadata probabilities (temperature scaling)
+            temperature = self.feature_config.get("metadata_fusion_temperature", 2.0)
+            metadata_probabilities_smoothed = np.exp(
+                np.log(metadata_probabilities + 1e-8) / temperature
+            )
+            metadata_probabilities_smoothed = (
+                metadata_probabilities_smoothed
+                / metadata_probabilities_smoothed.sum(axis=1, keepdims=True)
+            )
+
+            # Get image-only predictions from class probabilities in the data
+            # Temporarily change config to get image features
+            temp_config = {
+                "use_image_features": False,
+                "use_class_probabilities": True,  # This contains image model predictions
+                "use_prediction_confidence": False,
+                "use_prediction_entropy": False,
+                "use_metadata_features": False,
+            }
+            original_config = self.feature_config.copy()
+            self.feature_config.update(temp_config)
+            self.feature_config["metadata_multiply_image_fusion"] = False
+
+            # Get image-only features (class probabilities)
+            X_test_image = self.prepare_features(test_df, feature_info, is_train=False)
+
+            # Extract image probabilities (they are the class_prob columns)
+            image_prob_cols = [
+                col for col in X_test_image.columns if col.startswith("class_prob_")
+            ]
+            if image_prob_cols:
+                image_probabilities = X_test_image[image_prob_cols].values
+                # Normalize to ensure they sum to 1
+                image_probabilities = image_probabilities / image_probabilities.sum(
+                    axis=1, keepdims=True
+                )
+
+                # Multiply image probabilities with smoothed metadata probabilities
+                fused_probabilities = (
+                    image_probabilities * metadata_probabilities_smoothed
+                )
+                fused_probabilities = fused_probabilities / fused_probabilities.sum(
+                    axis=1, keepdims=True
+                )
+
+                # Get predictions from fused probabilities
+                predictions_encoded = np.argmax(fused_probabilities, axis=1)
+                predictions = self.label_encoder.inverse_transform(predictions_encoded)
+                probabilities = fused_probabilities
+
+                print(f"  📊 Image probs shape: {image_probabilities.shape}")
+                print(
+                    f"  🌍 Metadata probs shape: {metadata_probabilities_smoothed.shape}"
+                )
+                print(f"  🔄 Fused probs shape: {fused_probabilities.shape}")
+            else:
+                print(
+                    "  ⚠️  No image probabilities found, using metadata-only predictions"
+                )
+                predictions_encoded = self.model.predict(X_test)
+                predictions = self.label_encoder.inverse_transform(predictions_encoded)
+                probabilities = self.model.predict_proba(X_test)
+
+            # Restore original config
+            self.feature_config = original_config.copy()
+
+        else:
+            # Standard test prediction
+            print("Generating predictions...")
+            predictions_encoded = self.model.predict(X_test)
+            predictions = self.label_encoder.inverse_transform(predictions_encoded)
+            probabilities = self.model.predict_proba(X_test)
 
         # Create submission
         results_df = pd.DataFrame(
@@ -394,16 +600,21 @@ class ConfigurableXGBoostFusion:
         config = self.feature_config
         suffix_parts = []
 
-        if config["use_image_features"]:
-            suffix_parts.append("IMG")
-        if config["use_class_probabilities"]:
-            suffix_parts.append("PROB")
-        if config["use_prediction_confidence"]:
-            suffix_parts.append("CONF")
-        if config["use_prediction_entropy"]:
-            suffix_parts.append("ENT")
-        if config["use_metadata_features"]:
-            suffix_parts.append("META")
+        if config.get("metadata_multiply_image_fusion", False):
+            suffix_parts.append(
+                f"META_IMG_FUSION_{config['metadata_fusion_temperature']:.2f}"
+            )
+        else:
+            if config["use_image_features"]:
+                suffix_parts.append("IMG")
+            if config["use_class_probabilities"]:
+                suffix_parts.append("PROB")
+            if config["use_prediction_confidence"]:
+                suffix_parts.append("CONF")
+            if config["use_prediction_entropy"]:
+                suffix_parts.append("ENT")
+            if config["use_metadata_features"]:
+                suffix_parts.append("META")
 
         return "_" + "+".join(suffix_parts) if suffix_parts else "_NONE"
 
@@ -487,10 +698,8 @@ def run_experiment(
 
 def main():
     """Run experiments with different feature combinations."""
-    features_dir = "/work3/monka/SummerSchool2025/results/EfficientNetB2_FocalLossLess/extracted_features/"
-    output_dir = (
-        "/work3/monka/SummerSchool2025/results/XGBoost_Configurable_Experiments_WithUpdatedMetadata_0/"
-    )
+    features_dir = "/work3/monka/SummerSchool2025/results/EfficientNet_V2L_CrossEntropy/extracted_features/"
+    output_dir = "/work3/monka/SummerSchool2025/results/XGBoost_Configurable_Experiments_WithUpdatedMetadata_0/"
 
     print("🍄 Configurable XGBoost Fusion - Feature Ablation Study")
     print("=" * 70)
@@ -535,6 +744,54 @@ def main():
                 "use_prediction_confidence": False,
                 "use_prediction_entropy": False,
                 "use_metadata_features": True,
+            },
+        },
+        {
+            "name": "Metadata Multiply Image Fusion 0.5",
+            "config": {
+                "use_image_features": False,  # Will be forced in the fusion strategy
+                "use_class_probabilities": False,
+                "use_prediction_confidence": False,
+                "use_prediction_entropy": False,
+                "use_metadata_features": True,
+                "metadata_multiply_image_fusion": True,
+                "metadata_fusion_temperature": 0.5,  # Configurable temperature for smoothing
+            },
+        },
+        {
+            "name": "Metadata Multiply Image Fusion 1.0",
+            "config": {
+                "use_image_features": False,  # Will be forced in the fusion strategy
+                "use_class_probabilities": False,
+                "use_prediction_confidence": False,
+                "use_prediction_entropy": False,
+                "use_metadata_features": True,
+                "metadata_multiply_image_fusion": True,
+                "metadata_fusion_temperature": 1.0,  # Configurable temperature for smoothing
+            },
+        },
+        {
+            "name": "Metadata Multiply Image Fusion 2.0",
+            "config": {
+                "use_image_features": False,  # Will be forced in the fusion strategy
+                "use_class_probabilities": False,
+                "use_prediction_confidence": False,
+                "use_prediction_entropy": False,
+                "use_metadata_features": True,
+                "metadata_multiply_image_fusion": True,
+                "metadata_fusion_temperature": 2.0,  # Configurable temperature for smoothing
+            },
+        },
+        {
+            "name": "Metadata Multiply Image Fusion 4.0",
+            "config": {
+                "use_image_features": False,  # Will be forced in the fusion strategy
+                "use_class_probabilities": False,
+                "use_prediction_confidence": False,
+                "use_prediction_entropy": False,
+                "use_metadata_features": True,
+                "metadata_multiply_image_fusion": True,
+                "metadata_fusion_temperature": 4.0,  # Configurable temperature for smoothing
             },
         },
     ]

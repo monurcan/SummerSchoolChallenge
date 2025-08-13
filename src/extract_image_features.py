@@ -16,7 +16,8 @@ def get_transforms_for_inference():
     """
     Return transforms for inference (same as validation transforms).
     """
-    width, height = 224, 224
+    # width, height = 224, 224
+    width, height = 224 * 2, 224 * 2
     return Compose(
         [
             Resize(height=height, width=width),
@@ -109,7 +110,8 @@ def extract_features_from_model(
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    model = models.efficientnet_b2(pretrained=True)
+    # model = models.efficientnet_b2(pretrained=True)
+    model = models.efficientnet_v2_l(pretrained=True)
     model.classifier = nn.Sequential(
         nn.Dropout(0.2),
         nn.Linear(model.classifier[1].in_features, 183),  # Number of classes
@@ -504,9 +506,9 @@ if __name__ == "__main__":
     image_path = "/work3/monka/SummerSchool2025/FungiImages/"
     data_file = "/work3/monka/SummerSchool2025/metadata.csv"
     checkpoint_dir = (
-        "/work3/monka/SummerSchool2025/results/EfficientNetB2_FocalLossLess/"
+        "/work3/monka/SummerSchool2025/results/EfficientNet_V2L_CrossEntropy/"
     )
-    output_dir = "/work3/monka/SummerSchool2025/results/EfficientNetB2_FocalLossLess/extracted_features/"
+    output_dir = f"{checkpoint_dir}/extracted_features/"
 
     # Extract features and create unified dataset
     extract_features_from_model(

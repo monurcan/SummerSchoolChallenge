@@ -20,6 +20,28 @@ from albumentations import (
     CLAHE,
     Blur,
     OneOf,
+    RandomResizedCrop,
+    HorizontalFlip,
+    VerticalFlip,
+    RandomRotate90,
+    ShiftScaleRotate,
+    OpticalDistortion,
+    GridDistortion,
+    ElasticTransform,
+    RandomBrightnessContrast,
+    ColorJitter,
+    HueSaturationValue,
+    RGBShift,
+    GaussNoise,
+    ISONoise,
+    MotionBlur,
+    Blur,
+    CLAHE,
+    CoarseDropout,
+    ChannelShuffle,
+    Normalize,
+    OneOf,
+    Resize,
 )
 from albumentations.pytorch import ToTensorV2
 from torch.optim.lr_scheduler import ReduceLROnPlateau
@@ -115,41 +137,76 @@ def get_transforms(data):
     """
     Return augmentation transforms for the specified mode ('train' or 'valid').
     """
-    width, height = 224 * 2, 224 * 2
+    width, height = 224 * 4, 224 * 4
     if data == "train":
         return Compose(
             [
-                RandomResizedCrop((width, height), scale=(0.8, 1.0)),
+                RandomResizedCrop(
+                    (width, height), scale=(0.7, 1.0), ratio=(0.8, 1.2), p=1.0
+                ),
+                # Geometric variations
                 OneOf(
                     [
                         HorizontalFlip(p=1.0),
                         VerticalFlip(p=1.0),
                         RandomRotate90(p=1.0),
+                        ShiftScaleRotate(
+                            shift_limit=0.15, scale_limit=0.15, rotate_limit=25, p=1.0
+                        ),
                     ],
-                    p=0.7,
+                    p=0.8,
                 ),
+                # Distortion-based augmentations (mimic lens effects)
+                OneOf(
+                    [
+                        OpticalDistortion(distort_limit=0.05, shift_limit=0.05, p=1.0),
+                        GridDistortion(num_steps=5, distort_limit=0.03, p=1.0),
+                        ElasticTransform(alpha=50, sigma=5, alpha_affine=10, p=1.0),
+                    ],
+                    p=0.4,
+                ),
+                # Color and lighting variations
                 OneOf(
                     [
                         ColorJitter(
-                            brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1, p=1.0
+                            brightness=0.3,
+                            contrast=0.3,
+                            saturation=0.3,
+                            hue=0.15,
+                            p=1.0,
                         ),
-                        RandomBrightnessContrast(p=1.0),
-                        RandomGamma(gamma_limit=(80, 120), p=1.0),
+                        RandomBrightnessContrast(
+                            brightness_limit=0.3, contrast_limit=0.3, p=1.0
+                        ),
+                        HueSaturationValue(
+                            hue_shift_limit=15,
+                            sat_shift_limit=20,
+                            val_shift_limit=20,
+                            p=1.0,
+                        ),
+                        RGBShift(
+                            r_shift_limit=20, g_shift_limit=20, b_shift_limit=20, p=1.0
+                        ),
                     ],
-                    p=0.5,
+                    p=0.7,
                 ),
+                # Noise & blur
                 OneOf(
                     [
                         GaussNoise(var_limit=(10.0, 50.0), p=1.0),
+                        ISONoise(color_shift=(0.01, 0.05), intensity=(0.1, 0.5), p=1.0),
+                        MotionBlur(blur_limit=3, p=1.0),
                         Blur(blur_limit=3, p=1.0),
                     ],
-                    p=0.3,
+                    p=0.4,
                 ),
-                ShiftScaleRotate(
-                    shift_limit=0.1, scale_limit=0.1, rotate_limit=15, p=0.3
+                # Small-scale occlusion & channel mixing
+                CoarseDropout(
+                    max_holes=8, max_height=32, max_width=32, fill_value=0, p=0.3
                 ),
-                CoarseDropout(max_holes=8, max_height=16, max_width=16, p=0.3),
-                CLAHE(clip_limit=2.0, p=0.2),
+                ChannelShuffle(p=0.1),
+                # Contrast enhancement
+                CLAHE(clip_limit=2.0, tile_grid_size=(8, 8), p=0.2),
                 Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
                 ToTensorV2(),
             ]
@@ -225,9 +282,9 @@ def train_fungi_network(data_file, image_path, checkpoint_dir):
     valid_dataset = FungiDataset(
         val_df, image_path, transform=get_transforms(data="valid")
     )
-    train_loader = DataLoader(train_dataset, batch_size=42, shuffle=True, num_workers=4)
+    train_loader = DataLoader(train_dataset, batch_size=10, shuffle=True, num_workers=4)
     valid_loader = DataLoader(
-        valid_dataset, batch_size=42, shuffle=False, num_workers=4
+        valid_dataset, batch_size=10, shuffle=False, num_workers=4
     )
 
     # Network Setup
@@ -367,7 +424,7 @@ def evaluate_network_on_test_set(data_file, image_path, checkpoint_dir, session_
     test_dataset = FungiDataset(
         test_df, image_path, transform=get_transforms(data="valid")
     )
-    test_loader = DataLoader(test_dataset, batch_size=42, shuffle=False, num_workers=4)
+    test_loader = DataLoader(test_dataset, batch_size=10, shuffle=False, num_workers=4)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = models.efficientnet_v2_l(pretrained=True)
@@ -416,7 +473,9 @@ def evaluate_network_on_test_set_with_tta(
 
     # Model and Test Setup
     best_trained_model = os.path.join(checkpoint_dir, "best_accuracy.pth")
-    output_csv_path = os.path.join(checkpoint_dir, f"test_predictions_tta_{tta_rounds}.csv")
+    output_csv_path = os.path.join(
+        checkpoint_dir, f"test_predictions_tta_{tta_rounds}.csv"
+    )
 
     df = pd.read_csv(data_file)
     test_df = df[df["filename_index"].str.startswith("fungi_test")]
@@ -440,6 +499,7 @@ def evaluate_network_on_test_set_with_tta(
 
     # Collect Predictions with TTA
     results = []
+    tensor_results = []  # Store tensors and filenames
     model.eval()
 
     with torch.no_grad():
@@ -470,12 +530,27 @@ def evaluate_network_on_test_set_with_tta(
             prediction = averaged_output.argmax(1).cpu().numpy()[0]
             results.append((filename, prediction))
 
+            # Store tensor and filename for saving
+            tensor_results.append(
+                {
+                    "filename": filename,
+                    "averaged_output": averaged_output.cpu(),  # Move to CPU for saving
+                }
+            )
+
     # Save Results to CSV
     with open(output_csv_path, mode="w", newline="") as csv_file:
         writer = csv.writer(csv_file)
         writer.writerow([session_name])  # Write session name as the first line
         writer.writerows(results)  # Write filenames and predictions
     print(f"TTA Results saved to {output_csv_path}")
+
+    # Save averaged output tensors
+    tensors_output_path = os.path.join(
+        checkpoint_dir, f"averaged_tensors_tta_{tta_rounds}.pt"
+    )
+    torch.save(tensor_results, tensors_output_path)
+    print(f"Averaged output tensors saved to {tensors_output_path}")
 
 
 if __name__ == "__main__":
@@ -486,16 +561,16 @@ if __name__ == "__main__":
 
     # Session name: Change session name for every experiment!
     # Session name will be saved as the first line of the prediction file
-    session = "EfficientNet_V2L_CrossEntropy"
+    session = "EfficientNet_V2L_CrossEntropy_InputShapeIncreased"
 
     # Folder for results of this experiment based on session name:
     checkpoint_dir = os.path.join(f"/work3/monka/SummerSchool2025/results/{session}/")
 
-    # train_fungi_network(data_file, image_path, checkpoint_dir)
-    # evaluate_network_on_test_set(data_file, image_path, checkpoint_dir, session)
-    # evaluate_network_on_test_set_with_tta(
-    #     data_file, image_path, checkpoint_dir, session, tta_rounds=10
-    # )
+    train_fungi_network(data_file, image_path, checkpoint_dir)
+    evaluate_network_on_test_set(data_file, image_path, checkpoint_dir, session)
+    evaluate_network_on_test_set_with_tta(
+        data_file, image_path, checkpoint_dir, session, tta_rounds=10
+    )
     evaluate_network_on_test_set_with_tta(
         data_file, image_path, checkpoint_dir, session, tta_rounds=64
     )

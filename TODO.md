@@ -11,6 +11,9 @@ tta
 
 TODO:
 
+- Clip Retrieve the similar samples from testset or trainingset and aggregate the predictions... Or if you can find it in the training set use that label
+
+
 easy metadata fusion strategies
 
 - https://openaccess.thecvf.com/content/WACV2022/papers/Picek_Danish_Fungi_2020_-_Not_Just_Another_Image_Recognition_Dataset_WACV_2022_paper.pdf
@@ -22,6 +25,10 @@ just count the number of samples
 then multiply: image-only class predictions * metadata-only class predictions 
 
 we can smooth metadata-only class predictions since they are not that accurate and calibrated
+
+this worked!
+day0_7 -> just model predictions without tta
+t_4 improved a lot
 
 
 active feature acquisition
