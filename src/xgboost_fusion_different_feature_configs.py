@@ -22,6 +22,7 @@ class ConfigurableXGBoostFusion:
         self.output_dir = output_dir
         self.model = None
         self.label_encoder = LabelEncoder()
+        self.categorical_mappings = {}
 
         # Default feature configuration
         self.feature_config = {
@@ -129,7 +130,26 @@ class ConfigurableXGBoostFusion:
             # Categorical text features
             for col in ["Habitat", "Substrate"]:
                 if col in features_combined.columns:
-                    features_combined[col] = features_combined[col].astype("category")
+                    if is_train:
+                        # Fit categories on training data and store them
+                        features_combined[col] = features_combined[col].astype("category")
+                        if not hasattr(self, "categorical_mappings"):
+                            self.categorical_mappings = {}
+                        self.categorical_mappings[col] = features_combined[col].cat.categories
+                    else:
+                        # Use the same categories from training
+                        if (
+                            hasattr(self, "categorical_mappings")
+                            and col in self.categorical_mappings
+                        ):
+                            features_combined[col] = pd.Categorical(
+                                features_combined[col], categories=self.categorical_mappings[col]
+                            )
+                        else:
+                            # Fallback if mapping not found
+                            raise ValueError(
+                                f"Categorical mapping for {col} not found. Ensure model was trained with this column."
+                            )
                     metadata_features.append(col)
 
             # Numerical features
@@ -176,6 +196,35 @@ class ConfigurableXGBoostFusion:
 
         print(f"  🔢 Total features selected: {len(all_features)}")
         final_X = features_combined[all_features].copy()
+
+        # Debug categorical encoding
+        print(f"\n=== CATEGORICAL ENCODING DEBUG ({'TRAIN' if is_train else 'TEST'}) ===")
+        for col in ["Habitat", "Substrate"]:
+            if col in final_X.columns:
+                print(f"\n{col}:")
+                print(f"  Raw unique values: {sorted(df[col].dropna().unique())}")
+                print(f"  Number of raw unique: {df[col].nunique()}")
+                
+                if hasattr(final_X[col], 'cat'):
+                    print(f"  Categories in final_X: {list(final_X[col].cat.categories)}")
+                    print(f"  Codes in final_X: {sorted(final_X[col].cat.codes.dropna().unique())}")
+                    print(f"  Missing values (coded as -1): {(final_X[col].cat.codes == -1).sum()}")
+                    
+                    if hasattr(self, 'categorical_mappings') and col in self.categorical_mappings:
+                        print(f"  Stored training categories: {list(self.categorical_mappings[col])}")
+                        
+                        # Check for categories in test that weren't in training
+                        test_categories = set(df[col].dropna().unique())
+                        train_categories = set(self.categorical_mappings[col])
+                        new_categories = test_categories - train_categories
+                        if new_categories:
+                            print(f"  ⚠️  NEW CATEGORIES IN TEST: {sorted(new_categories)}")
+                        missing_categories = train_categories - test_categories
+                        if missing_categories:
+                            print(f"  📝 MISSING CATEGORIES IN TEST: {sorted(missing_categories)}")
+                else:
+                    print("  Not categorical in final_X")
+        print("=" * 60)
 
         return final_X
 
@@ -376,6 +425,7 @@ class ConfigurableXGBoostFusion:
                     "model": self.model,
                     "label_encoder": self.label_encoder,
                     "feature_config": self.feature_config,
+                    "categorical_mappings": self.categorical_mappings,
                 },
                 f,
             )
@@ -439,7 +489,7 @@ def main():
     """Run experiments with different feature combinations."""
     features_dir = "/work3/monka/SummerSchool2025/results/EfficientNetB2_FocalLossLess/extracted_features/"
     output_dir = (
-        "/work3/monka/SummerSchool2025/results/XGBoost_Configurable_Experiments/"
+        "/work3/monka/SummerSchool2025/results/XGBoost_Configurable_Experiments_WithUpdatedMetadata_0/"
     )
 
     print("🍄 Configurable XGBoost Fusion - Feature Ablation Study")
@@ -447,36 +497,36 @@ def main():
 
     # Define different configurations to test
     experiments = [
-        {
-            "name": "All Features",
-            "config": {
-                "use_image_features": True,
-                "use_class_probabilities": True,
-                "use_prediction_confidence": True,
-                "use_prediction_entropy": True,
-                "use_metadata_features": True,
-            },
-        },
-        {
-            "name": "Only Image Features",
-            "config": {
-                "use_image_features": True,
-                "use_class_probabilities": False,
-                "use_prediction_confidence": False,
-                "use_prediction_entropy": False,
-                "use_metadata_features": False,
-            },
-        },
-        {
-            "name": "Image + Metadata",
-            "config": {
-                "use_image_features": True,
-                "use_class_probabilities": False,
-                "use_prediction_confidence": False,
-                "use_prediction_entropy": False,
-                "use_metadata_features": True,
-            },
-        },
+        # {
+        #     "name": "All Features",
+        #     "config": {
+        #         "use_image_features": True,
+        #         "use_class_probabilities": True,
+        #         "use_prediction_confidence": True,
+        #         "use_prediction_entropy": True,
+        #         "use_metadata_features": True,
+        #     },
+        # },
+        # {
+        #     "name": "Only Image Features",
+        #     "config": {
+        #         "use_image_features": True,
+        #         "use_class_probabilities": False,
+        #         "use_prediction_confidence": False,
+        #         "use_prediction_entropy": False,
+        #         "use_metadata_features": False,
+        #     },
+        # },
+        # {
+        #     "name": "Image + Metadata",
+        #     "config": {
+        #         "use_image_features": True,
+        #         "use_class_probabilities": False,
+        #         "use_prediction_confidence": False,
+        #         "use_prediction_entropy": False,
+        #         "use_metadata_features": True,
+        #     },
+        # },
         {
             "name": "Only Metadata",
             "config": {

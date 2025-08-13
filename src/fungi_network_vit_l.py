@@ -115,7 +115,7 @@ def get_transforms(data):
     """
     Return augmentation transforms for the specified mode ('train' or 'valid').
     """
-    width, height = 224 * 2, 224 * 2
+    width, height = 224, 224
     if data == "train":
         return Compose(
             [
@@ -225,24 +225,24 @@ def train_fungi_network(data_file, image_path, checkpoint_dir):
     valid_dataset = FungiDataset(
         val_df, image_path, transform=get_transforms(data="valid")
     )
-    train_loader = DataLoader(train_dataset, batch_size=42, shuffle=True, num_workers=4)
+    train_loader = DataLoader(
+        train_dataset, batch_size=200, shuffle=True, num_workers=4, pin_memory=True
+    )
     valid_loader = DataLoader(
-        valid_dataset, batch_size=42, shuffle=False, num_workers=4
+        valid_dataset, batch_size=200, shuffle=False, num_workers=4
     )
 
     # Network Setup
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = models.efficientnet_v2_l(pretrained=True)
-    model.classifier = nn.Sequential(
-        nn.Dropout(0.2),
-        nn.Linear(
-            model.classifier[1].in_features, len(train_df["taxonID_index"].unique())
-        ),
+    model = models.vit_l_16(weights=models.ViT_L_16_Weights.IMAGENET1K_V1)
+    model.heads.head = nn.Linear(
+        model.heads.head.in_features, len(train_df["taxonID_index"].unique())
     )
+
     model.to(device)
 
     # Define Optimization, Scheduler, and Criterion
-    optimizer = AdamW(model.parameters(), lr=3e-4, weight_decay=1e-5)
+    optimizer = AdamW(model.parameters(), lr=1e-3, weight_decay=1e-5)
     scheduler = ReduceLROnPlateau(optimizer, "min", factor=0.9, patience=1, eps=1e-6)
     # criterion = FocalLoss(alpha=1.0, gamma=0.4, reduction="mean")
     criterion = nn.CrossEntropyLoss()
@@ -367,14 +367,12 @@ def evaluate_network_on_test_set(data_file, image_path, checkpoint_dir, session_
     test_dataset = FungiDataset(
         test_df, image_path, transform=get_transforms(data="valid")
     )
-    test_loader = DataLoader(test_dataset, batch_size=42, shuffle=False, num_workers=4)
+    test_loader = DataLoader(test_dataset, batch_size=200, shuffle=False, num_workers=4)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = models.efficientnet_v2_l(pretrained=True)
-    model.classifier = nn.Sequential(
-        nn.Dropout(0.2),
-        nn.Linear(model.classifier[1].in_features, 183),  # Number of classes
-    )
+    model = models.vit_l_16(weights=models.ViT_L_16_Weights.IMAGENET1K_V1)
+    model.heads.head = nn.Linear(model.heads.head.in_features, 183)
+
     model.load_state_dict(torch.load(best_trained_model))
     model.to(device)
 
@@ -430,11 +428,9 @@ def evaluate_network_on_test_set_with_tta(
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = models.efficientnet_v2_l(pretrained=True)
-    model.classifier = nn.Sequential(
-        nn.Dropout(0.2),
-        nn.Linear(model.classifier[1].in_features, 183),  # Number of classes
-    )
+    model = models.vit_l_16(weights=models.ViT_L_16_Weights.IMAGENET1K_V1)
+    model.heads.head = nn.Linear(model.heads.head.in_features, 183)
+
     model.load_state_dict(torch.load(best_trained_model))
     model.to(device)
 
@@ -486,7 +482,7 @@ if __name__ == "__main__":
 
     # Session name: Change session name for every experiment!
     # Session name will be saved as the first line of the prediction file
-    session = "EfficientNet_V2L_CrossEntropy"
+    session = "ViT_L_CrossEntropy"
 
     # Folder for results of this experiment based on session name:
     checkpoint_dir = os.path.join(f"/work3/monka/SummerSchool2025/results/{session}/")

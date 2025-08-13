@@ -11,6 +11,19 @@ tta
 
 TODO:
 
+easy metadata fusion strategies
+
+- https://openaccess.thecvf.com/content/WACV2022/papers/Picek_Danish_Fungi_2020_-_Not_Just_Another_Image_Recognition_Dataset_WACV_2022_paper.pdf
+
+just count the number of samples 
+
+- train xgboost with metadata only
+
+then multiply: image-only class predictions * metadata-only class predictions 
+
+we can smooth metadata-only class predictions since they are not that accurate and calibrated
+
+
 active feature acquisition
 
 - loss based (image only classifier): metadata is too sparse for now, we cannot do anything with them. this is a good starting point
