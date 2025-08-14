@@ -987,7 +987,7 @@ def run_experiment(
 def main():
     """Run experiments with different feature combinations."""
     features_dir = "/work3/monka/SummerSchool2025/results/EfficientNet_V2L_CrossEntropy/extracted_features/"
-    output_dir = "/work3/monka/SummerSchool2025/results/XGBoost_Configurable_Experiments_WithUpdatedMetadata_14_plusnotmult/"
+    output_dir = "/work3/monka/SummerSchool2025/results/XGBoost_Configurable_Experiments_WithUpdatedMetadata_15/"
 
     print("🍄 Configurable XGBoost Fusion - Feature Ablation Study")
     print("=" * 70)
@@ -1034,18 +1034,18 @@ def main():
         #         "use_metadata_features": True,
         #     },
         # },
-        {
-            "name": "Metadata Multiply Image Fusion 1.0",
-            "config": {
-                "use_image_features": False,  # Will be forced in the fusion strategy
-                "use_class_probabilities": False,
-                "use_prediction_confidence": False,
-                "use_prediction_entropy": False,
-                "use_metadata_features": True,
-                "metadata_multiply_image_fusion": True,
-                "metadata_fusion_temperature": 1.0,  # Configurable temperature for smoothing
-            },
-        },
+        # {
+        #     "name": "Metadata Multiply Image Fusion 1.0",
+        #     "config": {
+        #         "use_image_features": False,  # Will be forced in the fusion strategy
+        #         "use_class_probabilities": False,
+        #         "use_prediction_confidence": False,
+        #         "use_prediction_entropy": False,
+        #         "use_metadata_features": True,
+        #         "metadata_multiply_image_fusion": True,
+        #         "metadata_fusion_temperature": 1.0,  # Configurable temperature for smoothing
+        #     },
+        # },
         {
             "name": "Metadata Multiply Image Fusion 1.5",
             "config": {
@@ -1058,42 +1058,42 @@ def main():
                 "metadata_fusion_temperature": 1.5,  # Configurable temperature for smoothing
             },
         },
-        {
-            "name": "Metadata Multiply Image Fusion 1.75",
-            "config": {
-                "use_image_features": False,  # Will be forced in the fusion strategy
-                "use_class_probabilities": False,
-                "use_prediction_confidence": False,
-                "use_prediction_entropy": False,
-                "use_metadata_features": True,
-                "metadata_multiply_image_fusion": True,
-                "metadata_fusion_temperature": 1.75,  # Configurable temperature for smoothing
-            },
-        },
-        {
-            "name": "Metadata Multiply Image Fusion 2.0",
-            "config": {
-                "use_image_features": False,
-                "use_class_probabilities": False,
-                "use_prediction_confidence": False,
-                "use_prediction_entropy": False,
-                "use_metadata_features": True,
-                "metadata_multiply_image_fusion": True,
-                "metadata_fusion_temperature": 2.0,  # Configurable temperature for smoothing
-            },
-        },
-        {
-            "name": "Metadata Multiply Image Fusion 2.5",
-            "config": {
-                "use_image_features": False,  # Will be forced in the fusion strategy
-                "use_class_probabilities": False,
-                "use_prediction_confidence": False,
-                "use_prediction_entropy": False,
-                "use_metadata_features": True,
-                "metadata_multiply_image_fusion": True,
-                "metadata_fusion_temperature": 2.5,  # Configurable temperature for smoothing
-            },
-        },
+        # {
+        #     "name": "Metadata Multiply Image Fusion 1.75",
+        #     "config": {
+        #         "use_image_features": False,  # Will be forced in the fusion strategy
+        #         "use_class_probabilities": False,
+        #         "use_prediction_confidence": False,
+        #         "use_prediction_entropy": False,
+        #         "use_metadata_features": True,
+        #         "metadata_multiply_image_fusion": True,
+        #         "metadata_fusion_temperature": 1.75,  # Configurable temperature for smoothing
+        #     },
+        # },
+        # {
+        #     "name": "Metadata Multiply Image Fusion 2.0",
+        #     "config": {
+        #         "use_image_features": False,
+        #         "use_class_probabilities": False,
+        #         "use_prediction_confidence": False,
+        #         "use_prediction_entropy": False,
+        #         "use_metadata_features": True,
+        #         "metadata_multiply_image_fusion": True,
+        #         "metadata_fusion_temperature": 2.0,  # Configurable temperature for smoothing
+        #     },
+        # },
+        # {
+        #     "name": "Metadata Multiply Image Fusion 2.5",
+        #     "config": {
+        #         "use_image_features": False,  # Will be forced in the fusion strategy
+        #         "use_class_probabilities": False,
+        #         "use_prediction_confidence": False,
+        #         "use_prediction_entropy": False,
+        #         "use_metadata_features": True,
+        #         "metadata_multiply_image_fusion": True,
+        #         "metadata_fusion_temperature": 2.5,  # Configurable temperature for smoothing
+        #     },
+        # },
         # {
         #     "name": "Metadata with HyperOpt",
         #     "config": {
