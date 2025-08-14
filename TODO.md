@@ -9,9 +9,14 @@ img cls.
 tta
 
 
+- it did not work: Clip Retrieve the similar samples from testset or trainingset and aggregate the predictions... Or if you can find it in the training set use that label
+
 TODO:
 
-- Clip Retrieve the similar samples from testset or trainingset and aggregate the predictions... Or if you can find it in the training set use that label
+xgboost hyperparam optim
+
+
+xgboost with img features?????
 
 
 easy metadata fusion strategies

@@ -225,20 +225,15 @@ def train_fungi_network(data_file, image_path, checkpoint_dir):
     valid_dataset = FungiDataset(
         val_df, image_path, transform=get_transforms(data="valid")
     )
-    train_loader = DataLoader(train_dataset, batch_size=42, shuffle=True, num_workers=4)
+    train_loader = DataLoader(train_dataset, batch_size=72, shuffle=True, num_workers=4)
     valid_loader = DataLoader(
-        valid_dataset, batch_size=42, shuffle=False, num_workers=4
+        valid_dataset, batch_size=72, shuffle=False, num_workers=4
     )
 
     # Network Setup
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = models.efficientnet_v2_l(pretrained=True)
-    model.classifier = nn.Sequential(
-        nn.Dropout(0.2),
-        nn.Linear(
-            model.classifier[1].in_features, len(train_df["taxonID_index"].unique())
-        ),
-    )
+    model = models.regnet_y_32gf(pretrained=True)
+    model.fc = nn.Linear(model.fc.in_features, len(train_df["taxonID_index"].unique()))
     model.to(device)
 
     # Define Optimization, Scheduler, and Criterion
@@ -368,14 +363,11 @@ def evaluate_network_on_test_set(data_file, image_path, checkpoint_dir, session_
     test_dataset = FungiDataset(
         test_df, image_path, transform=get_transforms(data="valid")
     )
-    test_loader = DataLoader(test_dataset, batch_size=42, shuffle=False, num_workers=4)
+    test_loader = DataLoader(test_dataset, batch_size=72, shuffle=False, num_workers=4)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = models.efficientnet_v2_l(pretrained=True)
-    model.classifier = nn.Sequential(
-        nn.Dropout(0.2),
-        nn.Linear(model.classifier[1].in_features, 183),  # Number of classes
-    )
+    model = models.regnet_y_32gf(pretrained=True)
+    model.fc = nn.Linear(model.fc.in_features, 183)  # Number of classes
     model.load_state_dict(torch.load(best_trained_model))
     model.to(device)
 
@@ -447,11 +439,8 @@ def evaluate_network_on_test_set_with_tta(
     test_dataset_clean = FungiDataset(test_df, image_path)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = models.efficientnet_v2_l(pretrained=True)
-    model.classifier = nn.Sequential(
-        nn.Dropout(0.2),
-        nn.Linear(model.classifier[1].in_features, 183),  # Number of classes
-    )
+    model = models.regnet_y_32gf(pretrained=True)
+    model.fc = nn.Linear(model.fc.in_features, 183)  # Number of classes
     model.load_state_dict(torch.load(best_trained_model))
     model.to(device)
 
@@ -548,7 +537,7 @@ if __name__ == "__main__":
 
     # Session name: Change session name for every experiment!
     # Session name will be saved as the first line of the prediction file
-    session = "EfficientNet_V2L_CrossEntropy_New"
+    session = "regnet_y_32gf"
 
     # Folder for results of this experiment based on session name:
     checkpoint_dir = os.path.join(f"/work3/monka/SummerSchool2025/results/{session}/")

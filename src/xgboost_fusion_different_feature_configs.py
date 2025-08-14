@@ -33,6 +33,9 @@ class ConfigurableXGBoostFusion:
             "use_metadata_features": True,
             "metadata_multiply_image_fusion": False,
             "metadata_fusion_temperature": 2.0,
+            # New options for balancing image vs metadata features
+            "reduce_image_dimensions": True,
+            "target_image_dimensions": 100,  # Reduce to this many dimensions
         }
 
         # Update with user config
@@ -45,6 +48,14 @@ class ConfigurableXGBoostFusion:
         """Print current feature configuration."""
         print("\n🔧 Feature Configuration:")
         print(f"  ✅ Image features: {self.feature_config['use_image_features']}")
+        if self.feature_config["use_image_features"]:
+            print(
+                f"    🔧 Reduce dimensions: {self.feature_config.get('reduce_image_dimensions', False)}"
+            )
+            if self.feature_config.get("reduce_image_dimensions", False):
+                print(
+                    f"    📏 Target dimensions: {self.feature_config.get('target_image_dimensions', 100)}"
+                )
         print(
             f"  ✅ Class probabilities: {self.feature_config['use_class_probabilities']}"
         )
@@ -85,10 +96,41 @@ class ConfigurableXGBoostFusion:
             ["image_features_vector", "class_probabilities_vector"], axis=1
         ).copy()
 
-        # 1. Image features (toggleable)
+        # 1. Image features (toggleable) - with dimensionality balancing
         if self.feature_config["use_image_features"]:
             print("  📸 Adding image features...")
             image_features = np.vstack(df["image_features_vector"].values)
+
+            # Option 1: Dimensionality reduction to balance with metadata features
+            reduce_image_dims = self.feature_config.get("reduce_image_dimensions", True)
+            target_image_dims = self.feature_config.get("target_image_dimensions", 100)
+
+            if reduce_image_dims and image_features.shape[1] > target_image_dims:
+                print(
+                    f"  🔧 Reducing image features from {image_features.shape[1]} to {target_image_dims} dimensions"
+                )
+                from sklearn.decomposition import PCA
+
+                if is_train:
+                    # Fit PCA on training data
+                    self.image_pca = PCA(
+                        n_components=target_image_dims, random_state=42
+                    )
+                    image_features_reduced = self.image_pca.fit_transform(
+                        image_features
+                    )
+                else:
+                    # Transform test data using fitted PCA
+                    if hasattr(self, "image_pca"):
+                        image_features_reduced = self.image_pca.transform(
+                            image_features
+                        )
+                    else:
+                        raise ValueError("PCA model not fitted. Train the model first.")
+
+                image_features = image_features_reduced
+                print(f"  ✅ Image features reduced to shape: {image_features.shape}")
+
             image_feature_cols = [
                 f"image_feat_{i}" for i in range(image_features.shape[1])
             ]
@@ -289,18 +331,26 @@ class ConfigurableXGBoostFusion:
             original_config = self.feature_config.copy()
             self.feature_config.update(
                 {
-                    "use_image_features": False,
-                    "use_class_probabilities": False,
-                    "use_prediction_confidence": False,
-                    "use_prediction_entropy": False,
-                    "use_metadata_features": True,
+                    "use_image_features": self.feature_config["use_image_features"],
+                    "use_class_probabilities": self.feature_config[
+                        "use_class_probabilities"
+                    ],
+                    "use_prediction_confidence": self.feature_config[
+                        "use_prediction_confidence"
+                    ],
+                    "use_prediction_entropy": self.feature_config[
+                        "use_prediction_entropy"
+                    ],
+                    "use_metadata_features": self.feature_config[
+                        "use_metadata_features"
+                    ],
                 }
             )
 
         # Split into train and validation sets
         print("Splitting data into train/validation...")
         train_split, val_split = train_test_split(
-            train_df, test_size=0.2, random_state=42, stratify=train_df["true_label"]
+            train_df, test_size=0.02, random_state=42, stratify=train_df["true_label"]
         )
 
         print(f"Train split: {len(train_split)} samples")
@@ -330,7 +380,7 @@ class ConfigurableXGBoostFusion:
         print(f"Missing values in train: {X_train.isnull().sum().sum()}")
         print(f"Missing values in validation: {X_val.isnull().sum().sum()}")
 
-        # XGBoost parameters
+        # XGBoost parameters - adjusted to balance image and metadata features
         params = {
             "objective": "multi:softprob",
             "num_class": len(np.unique(y_train_encoded)),
@@ -339,6 +389,18 @@ class ConfigurableXGBoostFusion:
             "enable_categorical": True,
             "device": "cuda",
             "verbosity": 1,
+            # Feature sampling to prevent image features from dominating
+            "colsample_bytree": 0.3,  # Sample fewer features per tree to give metadata a chance
+            "colsample_bylevel": 0.7,  # Additional feature sampling per level
+            "colsample_bynode": 0.8,  # Additional feature sampling per node
+            # Regularization to prevent overfitting on high-dim image features
+            "reg_alpha": 10.0,  # L1 regularization
+            "reg_lambda": 10.0,  # L2 regularization
+            "max_depth": 6,  # Shallower trees to prevent overfitting
+            "min_child_weight": 3,  # Higher minimum samples per leaf
+            "learning_rate": 0.1,  # Lower learning rate for better generalization
+            "n_estimators": 1000,  # More trees with lower learning rate
+            "subsample": 0.8,  # Row subsampling
         }
 
         # Train model
@@ -522,6 +584,57 @@ class ConfigurableXGBoostFusion:
             ]
             if image_prob_cols:
                 image_probabilities = X_test_image[image_prob_cols].values
+
+                use_tta_predictions_from_csv = True
+                if use_tta_predictions_from_csv:
+                    # Instead of using the class probabilities, load TTA predictions from CSV
+                    tta_csv_path = "/work3/monka/SummerSchool2025/results/EfficientNet_V2L_CrossEntropy_New/test_probabilities_tta_64.csv"
+                    print(f"  🔄 Loading TTA predictions from: {tta_csv_path}")
+
+                    # Load TTA predictions CSV
+                    tta_df = pd.read_csv(tta_csv_path)
+
+                    # Get test filenames in the current order
+                    test_filenames = test_df["filename"].values
+
+                    # Create mapping from filename to TTA predictions
+                    # First column is filename, rest are class probabilities
+                    tta_filename_col = tta_df.columns[
+                        0
+                    ]  # First column contains filenames
+                    tta_prob_cols = tta_df.columns[1:]  # Rest are probability columns
+
+                    # Create a mapping from filename to probabilities
+                    tta_dict = {}
+                    for idx, row in tta_df.iterrows():
+                        filename = row[tta_filename_col]
+                        probabilities = row[tta_prob_cols].values
+                        tta_dict[filename] = probabilities
+
+                    # Order TTA predictions to match test data order
+                    tta_predictions_ordered = []
+                    missing_files = []
+
+                    for filename in test_filenames:
+                        if filename in tta_dict:
+                            tta_predictions_ordered.append(tta_dict[filename])
+                        else:
+                            missing_files.append(filename)
+                            # Use zeros as fallback if file not found in TTA predictions
+                            tta_predictions_ordered.append(np.zeros(len(tta_prob_cols)))
+
+                    if missing_files:
+                        print(
+                            f"  ⚠️  Warning: {len(missing_files)} files not found in TTA predictions, using zeros as fallback"
+                        )
+                        print(f"  First few missing: {missing_files[:5]}")
+
+                    # Convert to numpy array and replace image_probabilities
+                    image_probabilities = np.array(tta_predictions_ordered)
+                    print(
+                        f"  ✅ Loaded TTA predictions shape: {image_probabilities.shape}"
+                    )
+
                 # Normalize to ensure they sum to 1
                 image_probabilities = image_probabilities / image_probabilities.sum(
                     axis=1, keepdims=True
@@ -604,17 +717,16 @@ class ConfigurableXGBoostFusion:
             suffix_parts.append(
                 f"META_IMG_FUSION_{config['metadata_fusion_temperature']:.2f}"
             )
-        else:
-            if config["use_image_features"]:
-                suffix_parts.append("IMG")
-            if config["use_class_probabilities"]:
-                suffix_parts.append("PROB")
-            if config["use_prediction_confidence"]:
-                suffix_parts.append("CONF")
-            if config["use_prediction_entropy"]:
-                suffix_parts.append("ENT")
-            if config["use_metadata_features"]:
-                suffix_parts.append("META")
+        if config["use_image_features"]:
+            suffix_parts.append("IMG")
+        if config["use_class_probabilities"]:
+            suffix_parts.append("PROB")
+        if config["use_prediction_confidence"]:
+            suffix_parts.append("CONF")
+        if config["use_prediction_entropy"]:
+            suffix_parts.append("ENT")
+        if config["use_metadata_features"]:
+            suffix_parts.append("META")
 
         return "_" + "+".join(suffix_parts) if suffix_parts else "_NONE"
 
@@ -630,16 +742,19 @@ class ConfigurableXGBoostFusion:
         model_file = os.path.join(
             self.output_dir, f"xgboost_fusion_model{config_suffix}.pkl"
         )
+        model_data = {
+            "model": self.model,
+            "label_encoder": self.label_encoder,
+            "feature_config": self.feature_config,
+            "categorical_mappings": self.categorical_mappings,
+        }
+
+        # Save PCA model if it exists
+        if hasattr(self, "image_pca"):
+            model_data["image_pca"] = self.image_pca
+
         with open(model_file, "wb") as f:
-            pickle.dump(
-                {
-                    "model": self.model,
-                    "label_encoder": self.label_encoder,
-                    "feature_config": self.feature_config,
-                    "categorical_mappings": self.categorical_mappings,
-                },
-                f,
-            )
+            pickle.dump(model_data, f)
 
         # Save feature importance
         importance_file = os.path.join(
@@ -699,7 +814,7 @@ def run_experiment(
 def main():
     """Run experiments with different feature combinations."""
     features_dir = "/work3/monka/SummerSchool2025/results/EfficientNet_V2L_CrossEntropy/extracted_features/"
-    output_dir = "/work3/monka/SummerSchool2025/results/XGBoost_Configurable_Experiments_WithUpdatedMetadata_0/"
+    output_dir = "/work3/monka/SummerSchool2025/results/XGBoost_Configurable_Experiments_WithUpdatedMetadata_7/"
 
     print("🍄 Configurable XGBoost Fusion - Feature Ablation Study")
     print("=" * 70)
@@ -736,44 +851,56 @@ def main():
         #         "use_metadata_features": True,
         #     },
         # },
-        {
-            "name": "Only Metadata",
-            "config": {
-                "use_image_features": False,
-                "use_class_probabilities": False,
-                "use_prediction_confidence": False,
-                "use_prediction_entropy": False,
-                "use_metadata_features": True,
-            },
-        },
-        {
-            "name": "Metadata Multiply Image Fusion 0.5",
-            "config": {
-                "use_image_features": False,  # Will be forced in the fusion strategy
-                "use_class_probabilities": False,
-                "use_prediction_confidence": False,
-                "use_prediction_entropy": False,
-                "use_metadata_features": True,
-                "metadata_multiply_image_fusion": True,
-                "metadata_fusion_temperature": 0.5,  # Configurable temperature for smoothing
-            },
-        },
-        {
-            "name": "Metadata Multiply Image Fusion 1.0",
-            "config": {
-                "use_image_features": False,  # Will be forced in the fusion strategy
-                "use_class_probabilities": False,
-                "use_prediction_confidence": False,
-                "use_prediction_entropy": False,
-                "use_metadata_features": True,
-                "metadata_multiply_image_fusion": True,
-                "metadata_fusion_temperature": 1.0,  # Configurable temperature for smoothing
-            },
-        },
+        # {
+        #     "name": "Only Metadata",
+        #     "config": {
+        #         "use_image_features": False,
+        #         "use_class_probabilities": False,
+        #         "use_prediction_confidence": False,
+        #         "use_prediction_entropy": False,
+        #         "use_metadata_features": True,
+        #     },
+        # },
+        # {
+        #     "name": "Metadata Multiply Image Fusion 1.0",
+        #     "config": {
+        #         "use_image_features": False,  # Will be forced in the fusion strategy
+        #         "use_class_probabilities": False,
+        #         "use_prediction_confidence": False,
+        #         "use_prediction_entropy": False,
+        #         "use_metadata_features": True,
+        #         "metadata_multiply_image_fusion": True,
+        #         "metadata_fusion_temperature": 1.0,  # Configurable temperature for smoothing
+        #     },
+        # },
+        # {
+        #     "name": "Metadata Multiply Image Fusion 1.5",
+        #     "config": {
+        #         "use_image_features": False,  # Will be forced in the fusion strategy
+        #         "use_class_probabilities": False,
+        #         "use_prediction_confidence": False,
+        #         "use_prediction_entropy": False,
+        #         "use_metadata_features": True,
+        #         "metadata_multiply_image_fusion": True,
+        #         "metadata_fusion_temperature": 1.5,  # Configurable temperature for smoothing
+        #     },
+        # },
+        # {
+        #     "name": "Metadata Multiply Image Fusion 2.5",
+        #     "config": {
+        #         "use_image_features": False,  # Will be forced in the fusion strategy
+        #         "use_class_probabilities": False,
+        #         "use_prediction_confidence": False,
+        #         "use_prediction_entropy": False,
+        #         "use_metadata_features": True,
+        #         "metadata_multiply_image_fusion": True,
+        #         "metadata_fusion_temperature": 2.5,  # Configurable temperature for smoothing
+        #     },
+        # },
         {
             "name": "Metadata Multiply Image Fusion 2.0",
             "config": {
-                "use_image_features": False,  # Will be forced in the fusion strategy
+                "use_image_features": False,
                 "use_class_probabilities": False,
                 "use_prediction_confidence": False,
                 "use_prediction_entropy": False,
@@ -782,18 +909,58 @@ def main():
                 "metadata_fusion_temperature": 2.0,  # Configurable temperature for smoothing
             },
         },
+        # {
+        #     "name": "Metadata Multiply Image Fusion 2.0 with Class Probs",
+        #     "config": {
+        #         "use_image_features": False,  # Will be forced in the fusion strategy
+        #         "use_class_probabilities": True,
+        #         "use_prediction_confidence": True,
+        #         "use_prediction_entropy": True,
+        #         "use_metadata_features": True,
+        #         "metadata_multiply_image_fusion": True,
+        #         "metadata_fusion_temperature": 2.0,  # Configurable temperature for smoothing
+        #     },
+        # },
+        # {
+        #     "name": "Metadata Multiply Image Fusion 2.0 with Img Features",
+        #     "config": {
+        #         "use_image_features": True,  # Will be forced in the fusion strategy
+        #         "use_class_probabilities": False,
+        #         "use_prediction_confidence": False,
+        #         "use_prediction_entropy": False,
+        #         "use_metadata_features": True,
+        #         "metadata_multiply_image_fusion": True,
+        #         "metadata_fusion_temperature": 2.0,  # Configurable temperature for smoothing
+        #         "reduce_image_dimensions": True,
+        #         "target_image_dimensions": 10,
+        #     },
+        # },
         {
-            "name": "Metadata Multiply Image Fusion 4.0",
+            "name": "Metadat + Compressed Image",
             "config": {
-                "use_image_features": False,  # Will be forced in the fusion strategy
+                "use_image_features": True,  # Will be forced in the fusion strategy
                 "use_class_probabilities": False,
                 "use_prediction_confidence": False,
                 "use_prediction_entropy": False,
                 "use_metadata_features": True,
                 "metadata_multiply_image_fusion": True,
-                "metadata_fusion_temperature": 4.0,  # Configurable temperature for smoothing
+                "metadata_fusion_temperature": 2.0,  # Configurable temperature for smoothing
+                "reduce_image_dimensions": True,
+                "target_image_dimensions": 10,
             },
         },
+        # {
+        #     "name": "Metadata Multiply Image Fusion 4.0",
+        #     "config": {
+        #         "use_image_features": False,  # Will be forced in the fusion strategy
+        #         "use_class_probabilities": False,
+        #         "use_prediction_confidence": False,
+        #         "use_prediction_entropy": False,
+        #         "use_metadata_features": True,
+        #         "metadata_multiply_image_fusion": True,
+        #         "metadata_fusion_temperature": 4.0,  # Configurable temperature for smoothing
+        #     },
+        # },
     ]
 
     # Run experiments
