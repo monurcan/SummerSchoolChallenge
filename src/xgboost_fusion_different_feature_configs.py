@@ -767,7 +767,7 @@ class ConfigurableXGBoostFusion:
                     # Load TTA predictions from multiple CSV files and combine them
                     tta_csv_paths = [
                         "/work3/monka/SummerSchool2025/results/EfficientNet_V2L_CrossEntropy_New/test_probabilities_tta_64.csv",
-                        "/work3/monka/SummerSchool2025/results/EfficientNet_V2L_Multimodal_LateFusion/test_probabilities_tta_64.csv",
+                        "/work3/monka/SummerSchool2025/results/EfficientNet_V2L_Multimodal_LateFusion/test_probabilities_tta_32.csv",
                     ]
                     tta_weights = [
                         self.feature_config["tta_model_1_weight"],
