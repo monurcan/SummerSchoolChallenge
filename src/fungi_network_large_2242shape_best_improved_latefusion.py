@@ -64,75 +64,135 @@ class FocalLoss(nn.Module):
 
 class MetadataProcessor:
     """
-    Processes metadata features for the fungi dataset.
-    Handles categorical and numerical features similar to XGBoost preprocessing.
+    Enhanced metadata processor with missing value handling and feature engineering.
     """
 
     def __init__(self):
         self.categorical_mappings = {}
+        self.numerical_stats = {}
         self.fitted = False
 
     def fit(self, df):
         """Fit the processor on training data."""
+        print("Fitting metadata processor...")
+
+        # Calculate missing value statistics
+        for col in ["Habitat", "Substrate", "Latitude", "Longitude", "eventDate"]:
+            if col in df.columns:
+                missing_rate = df[col].isnull().sum() / len(df)
+                print(f"  {col}: {missing_rate:.1%} missing")
+
         # Process categorical features
         for col in ["Habitat", "Substrate"]:
             if col in df.columns:
                 # Get unique categories, fill NaN with 'unknown'
                 categories = df[col].fillna("unknown").astype(str).unique()
-                # Sort for consistency
+                # Sort for consistency, but ensure 'unknown' is first
                 categories = sorted(categories)
+                if "unknown" in categories:
+                    categories.remove("unknown")
+                categories = ["unknown"] + categories  # 'unknown' gets index 0
+
                 self.categorical_mappings[col] = {
                     cat: idx for idx, cat in enumerate(categories)
                 }
+                print(f"  {col}: {len(categories)} categories (index 0='unknown')")
+
+        # Store numerical statistics for normalization
+        for col in ["Latitude", "Longitude"]:
+            if col in df.columns:
+                non_null_values = df[col].dropna()
+                if len(non_null_values) > 0:
+                    self.numerical_stats[col] = {
+                        "mean": non_null_values.mean(),
+                        "std": non_null_values.std(),
+                        "min": non_null_values.min(),
+                        "max": non_null_values.max(),
+                    }
+                    print(
+                        f"  {col}: mean={self.numerical_stats[col]['mean']:.3f}, std={self.numerical_stats[col]['std']:.3f}"
+                    )
 
         self.fitted = True
         return self
 
     def transform(self, df):
-        """Transform dataframe to processed features."""
+        """Transform dataframe to processed features with missing value indicators."""
         if not self.fitted:
             raise ValueError("Processor must be fitted before transform")
 
         processed_features = {}
 
-        # Categorical features - convert to indices
+        # Categorical features with missing indicators
         for col in ["Habitat", "Substrate"]:
             if col in df.columns:
+                # Create missing indicator
+                is_missing = df[col].isnull()
+                processed_features[f"{col}_missing"] = torch.tensor(
+                    is_missing.astype(int).values, dtype=torch.float32
+                )
+
                 # Fill NaN and convert to string
                 values = df[col].fillna("unknown").astype(str)
-                # Map to indices, use 0 for unknown categories
+                # Map to indices, use index 0 ("unknown") for unseen categories
                 indices = []
                 for val in values:
                     if val in self.categorical_mappings[col]:
                         indices.append(self.categorical_mappings[col][val])
                     else:
-                        indices.append(0)  # Default to first category for unknown
+                        # Map unseen categories to "unknown" (index 0)
+                        indices.append(self.categorical_mappings[col]["unknown"])
                 processed_features[col] = torch.tensor(indices, dtype=torch.long)
             else:
-                # Create dummy feature if column doesn't exist
+                # Create dummy features if column doesn't exist
                 processed_features[col] = torch.zeros(len(df), dtype=torch.long)
+                processed_features[f"{col}_missing"] = torch.ones(
+                    len(df), dtype=torch.float32
+                )
 
-        # Numerical features
+        # Numerical features with normalization and missing indicators
         for col in ["Latitude", "Longitude"]:
-            if col in df.columns:
-                values = df[col].fillna(0.0).astype(float).values
-                processed_features[col] = torch.tensor(values, dtype=torch.float32)
+            if col in df.columns and col in self.numerical_stats:
+                # Create missing indicator
+                is_missing = df[col].isnull()
+                processed_features[f"{col}_missing"] = torch.tensor(
+                    is_missing.astype(int).values, dtype=torch.float32
+                )
+
+                # Normalize using training statistics
+                values = df[col].fillna(self.numerical_stats[col]["mean"]).astype(float)
+                normalized_values = (values - self.numerical_stats[col]["mean"]) / (
+                    self.numerical_stats[col]["std"] + 1e-8
+                )
+                processed_features[col] = torch.tensor(
+                    normalized_values.values, dtype=torch.float32
+                )
             else:
                 processed_features[col] = torch.zeros(len(df), dtype=torch.float32)
+                processed_features[f"{col}_missing"] = torch.ones(
+                    len(df), dtype=torch.float32
+                )
 
-        # Temporal features from eventDate
+        # Enhanced temporal features from eventDate
         if "eventDate" in df.columns:
             dates = pd.to_datetime(df["eventDate"], errors="coerce")
+
+            # Missing indicator for eventDate
+            is_missing = dates.isnull()
+            processed_features["eventDate_missing"] = torch.tensor(
+                is_missing.astype(int).values, dtype=torch.float32
+            )
 
             # Month (1-12, 0 for NaN)
             months = dates.dt.month.fillna(0).astype(int).values
             processed_features["month"] = torch.tensor(months, dtype=torch.long)
 
-            # Year (normalized to 2000-2030 range, 0 for NaN)
-            years = dates.dt.year.fillna(2010).astype(int).values
-            # Normalize years to reasonable range
-            years = (years - 2000) / 30.0  # Normalize to roughly [-0.67, 1.0] range
-            processed_features["year"] = torch.tensor(years, dtype=torch.float32)
+            # Year (normalized, use median year for missing)
+            years = dates.dt.year.fillna(2015).astype(int).values  # Use median year
+            years_normalized = (years - 2000) / 30.0
+            processed_features["year"] = torch.tensor(
+                years_normalized, dtype=torch.float32
+            )
 
             # Season (0-3 for Winter, Spring, Summer, Autumn)
             seasons = months.copy()
@@ -149,17 +209,45 @@ class MetadataProcessor:
                 9: 3,
                 10: 3,
                 11: 3,  # Autumn
-                0: 0,
-            }  # Default for missing
+                0: 0,  # Default for missing
+            }
             seasons = (
                 pd.Series(seasons).map(season_mapping).fillna(0).astype(int).values
             )
             processed_features["season"] = torch.tensor(seasons, dtype=torch.long)
+
+            # Day of year (1-366, 0 for missing)
+            day_of_year = dates.dt.dayofyear.fillna(0).astype(int).values
+            # Normalize to [0, 1]
+            day_of_year_normalized = day_of_year / 366.0
+            processed_features["day_of_year"] = torch.tensor(
+                day_of_year_normalized, dtype=torch.float32
+            )
+
+            # Cyclical encoding for temporal features
+            # Month cyclical features
+            month_sin = np.sin(2 * np.pi * months / 12)
+            month_cos = np.cos(2 * np.pi * months / 12)
+            processed_features["month_sin"] = torch.tensor(
+                month_sin, dtype=torch.float32
+            )
+            processed_features["month_cos"] = torch.tensor(
+                month_cos, dtype=torch.float32
+            )
+
         else:
             # Default temporal features
             processed_features["month"] = torch.zeros(len(df), dtype=torch.long)
             processed_features["year"] = torch.zeros(len(df), dtype=torch.float32)
             processed_features["season"] = torch.zeros(len(df), dtype=torch.long)
+            processed_features["day_of_year"] = torch.zeros(
+                len(df), dtype=torch.float32
+            )
+            processed_features["month_sin"] = torch.zeros(len(df), dtype=torch.float32)
+            processed_features["month_cos"] = torch.zeros(len(df), dtype=torch.float32)
+            processed_features["eventDate_missing"] = torch.ones(
+                len(df), dtype=torch.float32
+            )
 
         return processed_features
 
@@ -183,6 +271,16 @@ class MetadataProcessor:
         dims["Latitude"] = 1
         dims["Longitude"] = 1
         dims["year"] = 1
+        dims["day_of_year"] = 1
+        dims["month_sin"] = 1
+        dims["month_cos"] = 1
+
+        # Missing indicators
+        dims["Habitat_missing"] = 1
+        dims["Substrate_missing"] = 1
+        dims["Latitude_missing"] = 1
+        dims["Longitude_missing"] = 1
+        dims["eventDate_missing"] = 1
 
         return dims
 
@@ -297,11 +395,16 @@ def get_transforms(data):
 
 
 class FungiDataset(Dataset):
-    def __init__(self, df, path, transform=None, metadata_processor=None):
+    def __init__(
+        self, df, path, transform=None, metadata_processor=None, metadata_dropout=0.0
+    ):
         self.df = df
         self.transform = transform
         self.path = path
         self.metadata_processor = metadata_processor
+        self.metadata_dropout = (
+            metadata_dropout  # Probability of dropping metadata during training
+        )
 
         # Pre-process metadata for efficiency
         if metadata_processor is not None:
@@ -335,18 +438,63 @@ class FungiDataset(Dataset):
         metadata = {}
         if self.metadata_features is not None:
             for key, values in self.metadata_features.items():
-                metadata[key] = values[idx]
+                metadata[key] = values[idx].clone()  # Clone to avoid modifying original
+
+            # Apply metadata dropout during training to simulate missing values
+            if self.metadata_dropout > 0 and random.random() < self.metadata_dropout:
+                # Randomly set some metadata to "missing" values
+                categorical_keys = ["Habitat", "Substrate", "month", "season"]
+                numerical_keys = [
+                    "Latitude",
+                    "Longitude",
+                    "year",
+                    "day_of_year",
+                    "month_sin",
+                    "month_cos",
+                ]
+
+                for key in categorical_keys:
+                    if (
+                        key in metadata and random.random() < 0.3
+                    ):  # 30% chance to drop each categorical
+                        metadata[key] = torch.tensor(
+                            0, dtype=torch.long
+                        )  # Set to unknown/missing
+                        if f"{key}_missing" in metadata:
+                            metadata[f"{key}_missing"] = torch.tensor(
+                                1.0, dtype=torch.float32
+                            )
+
+                for key in numerical_keys:
+                    if (
+                        key in metadata and random.random() < 0.3
+                    ):  # 30% chance to drop each numerical
+                        metadata[key] = torch.tensor(
+                            0.0, dtype=torch.float32
+                        )  # Set to zero (normalized missing)
+                        if f"{key.split('_')[0]}_missing" in metadata:
+                            metadata[f"{key.split('_')[0]}_missing"] = torch.tensor(
+                                1.0, dtype=torch.float32
+                            )
 
         return image, label, file_path, metadata
 
 
 class MultimodalFungiModel(nn.Module):
     """
-    Multimodal model that combines EfficientNet image features with metadata features.
+    Enhanced multimodal model with better fusion strategies and metadata handling.
     """
 
-    def __init__(self, num_classes, metadata_dims, pretrained_model_path=None):
+    def __init__(
+        self,
+        num_classes,
+        metadata_dims,
+        pretrained_model_path=None,
+        fusion_strategy="attention",
+    ):
         super(MultimodalFungiModel, self).__init__()
+
+        self.fusion_strategy = fusion_strategy
 
         # Load pre-trained EfficientNet
         self.backbone = models.efficientnet_v2_l(pretrained=True)
@@ -360,7 +508,6 @@ class MultimodalFungiModel(nn.Module):
         # Load pre-trained weights if provided
         if pretrained_model_path and os.path.exists(pretrained_model_path):
             print(f"Loading pre-trained image model from: {pretrained_model_path}")
-            # Load the state dict from the image-only model
             pretrained_state = torch.load(pretrained_model_path, map_location="cpu")
 
             # Create a temporary model to load the pretrained weights
@@ -380,31 +527,77 @@ class MultimodalFungiModel(nn.Module):
             self.backbone.load_state_dict(backbone_dict, strict=False)
             print("Pre-trained backbone weights loaded successfully!")
 
-        # Metadata embedding layers
-        self.habitat_embedding = nn.Embedding(
-            metadata_dims["Habitat"] + 1, 16
-        )  # +1 for padding
-        self.substrate_embedding = nn.Embedding(metadata_dims["Substrate"] + 1, 16)
-        self.month_embedding = nn.Embedding(metadata_dims["month"] + 1, 8)
-        self.season_embedding = nn.Embedding(metadata_dims["season"] + 1, 4)
+        # Enhanced metadata embedding layers with larger dimensions
+        self.habitat_embedding = nn.Embedding(metadata_dims["Habitat"], 32)
+        self.substrate_embedding = nn.Embedding(metadata_dims["Substrate"], 32)
+        self.month_embedding = nn.Embedding(metadata_dims["month"], 16)
+        self.season_embedding = nn.Embedding(metadata_dims["season"], 8)
 
-        # Calculate total metadata feature dimension
-        metadata_feature_dim = (
-            16
-            + 16
-            + 8
-            + 4  # Embeddings: habitat + substrate + month + season
-            + 2
-            + 1  # Numerical: lat + lon + year
+        # Calculate metadata feature dimensions
+        categorical_dim = 32 + 32 + 16 + 8  # habitat + substrate + month + season
+        numerical_dim = 6  # lat, lon, year, day_of_year, month_sin, month_cos
+        missing_indicator_dim = 5  # 5 missing indicators
+
+        raw_metadata_dim = categorical_dim + numerical_dim + missing_indicator_dim
+
+        # Metadata feature processor - expand metadata to match image importance
+        self.metadata_processor = nn.Sequential(
+            nn.Linear(raw_metadata_dim, 256),
+            nn.BatchNorm1d(256),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(256, 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+            nn.Linear(512, 512),  # Match this to image feature processing
         )
 
-        # Combined feature dimension
-        combined_dim = backbone_feature_dim + metadata_feature_dim
-
-        # Enhanced classifier with more layers to handle multimodal fusion
-        self.classifier = nn.Sequential(
+        # Image feature processor - reduce dimension to balance with metadata
+        self.image_processor = nn.Sequential(
+            nn.Linear(backbone_feature_dim, 1024),
+            nn.BatchNorm1d(1024),
+            nn.ReLU(),
             nn.Dropout(0.3),
-            nn.Linear(combined_dim, 1024),
+            nn.Linear(1024, 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+            nn.Dropout(0.2),
+        )
+
+        # Fusion mechanisms
+        if fusion_strategy == "attention":
+            # Cross-attention mechanism
+            self.image_to_meta_attention = nn.MultiheadAttention(
+                embed_dim=512, num_heads=8, dropout=0.1
+            )
+            self.meta_to_image_attention = nn.MultiheadAttention(
+                embed_dim=512, num_heads=8, dropout=0.1
+            )
+
+            # Layer normalization for attention
+            self.image_norm = nn.LayerNorm(512)
+            self.meta_norm = nn.LayerNorm(512)
+
+            final_dim = 512 * 2  # Concatenated attended features
+
+        elif fusion_strategy == "gated":
+            # Gated fusion
+            self.gate = nn.Sequential(nn.Linear(512 * 2, 512), nn.Sigmoid())
+            final_dim = 512
+
+        elif fusion_strategy == "bilinear":
+            # Bilinear pooling
+            self.bilinear = nn.Bilinear(512, 512, 512)
+            final_dim = 512
+
+        else:  # concatenation
+            final_dim = 512 * 2
+
+        # Final classifier
+        self.classifier = nn.Sequential(
+            nn.Dropout(0.4),
+            nn.Linear(final_dim, 1024),
             nn.BatchNorm1d(1024),
             nn.ReLU(),
             nn.Dropout(0.3),
@@ -415,19 +608,27 @@ class MultimodalFungiModel(nn.Module):
             nn.Linear(512, num_classes),
         )
 
-        # Initialize embeddings
-        self._initialize_embeddings()
+        # Initialize embeddings and weights
+        self._initialize_weights()
 
-    def _initialize_embeddings(self):
-        """Initialize embedding layers with appropriate values."""
+    def _initialize_weights(self):
+        """Initialize embedding layers and other components."""
         nn.init.xavier_uniform_(self.habitat_embedding.weight)
         nn.init.xavier_uniform_(self.substrate_embedding.weight)
         nn.init.xavier_uniform_(self.month_embedding.weight)
         nn.init.xavier_uniform_(self.season_embedding.weight)
 
+        # Initialize linear layers
+        for module in [self.metadata_processor, self.image_processor, self.classifier]:
+            for layer in module:
+                if isinstance(layer, nn.Linear):
+                    nn.init.xavier_uniform_(layer.weight)
+                    nn.init.zeros_(layer.bias)
+
     def forward(self, images, metadata):
-        # Extract image features
-        image_features = self.backbone(images)  # [batch_size, backbone_feature_dim]
+        # Extract and process image features
+        raw_image_features = self.backbone(images)
+        processed_image_features = self.image_processor(raw_image_features)
 
         # Process metadata features
         habitat_emb = self.habitat_embedding(metadata["Habitat"])
@@ -435,22 +636,96 @@ class MultimodalFungiModel(nn.Module):
         month_emb = self.month_embedding(metadata["month"])
         season_emb = self.season_embedding(metadata["season"])
 
-        # Numerical features (already float tensors)
-        lat = metadata["Latitude"].unsqueeze(1)
-        lon = metadata["Longitude"].unsqueeze(1)
-        year = metadata["year"].unsqueeze(1)
-
-        # Concatenate all metadata features
-        metadata_features = torch.cat(
-            [habitat_emb, substrate_emb, month_emb, season_emb, lat, lon, year], dim=1
+        # Numerical and indicator features
+        numerical_features = torch.cat(
+            [
+                metadata["Latitude"].unsqueeze(1),
+                metadata["Longitude"].unsqueeze(1),
+                metadata["year"].unsqueeze(1),
+                metadata["day_of_year"].unsqueeze(1),
+                metadata["month_sin"].unsqueeze(1),
+                metadata["month_cos"].unsqueeze(1),
+            ],
+            dim=1,
         )
 
-        # Combine image and metadata features
-        combined_features = torch.cat([image_features, metadata_features], dim=1)
+        missing_indicators = torch.cat(
+            [
+                metadata["Habitat_missing"].unsqueeze(1),
+                metadata["Substrate_missing"].unsqueeze(1),
+                metadata["Latitude_missing"].unsqueeze(1),
+                metadata["Longitude_missing"].unsqueeze(1),
+                metadata["eventDate_missing"].unsqueeze(1),
+            ],
+            dim=1,
+        )
+
+        # Concatenate all metadata features
+        raw_metadata_features = torch.cat(
+            [
+                habitat_emb,
+                substrate_emb,
+                month_emb,
+                season_emb,
+                numerical_features,
+                missing_indicators,
+            ],
+            dim=1,
+        )
+
+        # Process metadata features
+        processed_metadata_features = self.metadata_processor(raw_metadata_features)
+
+        # Fusion strategy
+        if self.fusion_strategy == "attention":
+            # Cross-attention fusion
+            # Reshape for attention (seq_len=1, batch, embed_dim)
+            img_feat = processed_image_features.unsqueeze(0)  # [1, batch, 512]
+            meta_feat = processed_metadata_features.unsqueeze(0)  # [1, batch, 512]
+
+            # Cross attention
+            img_attended, _ = self.image_to_meta_attention(
+                img_feat, meta_feat, meta_feat
+            )
+            meta_attended, _ = self.meta_to_image_attention(
+                meta_feat, img_feat, img_feat
+            )
+
+            # Remove sequence dimension and apply layer norm
+            img_attended = self.image_norm(
+                img_attended.squeeze(0) + processed_image_features
+            )
+            meta_attended = self.meta_norm(
+                meta_attended.squeeze(0) + processed_metadata_features
+            )
+
+            # Concatenate attended features
+            fused_features = torch.cat([img_attended, meta_attended], dim=1)
+
+        elif self.fusion_strategy == "gated":
+            # Gated fusion
+            concatenated = torch.cat(
+                [processed_image_features, processed_metadata_features], dim=1
+            )
+            gate = self.gate(concatenated)
+            fused_features = (
+                gate * processed_image_features
+                + (1 - gate) * processed_metadata_features
+            )
+
+        elif self.fusion_strategy == "bilinear":
+            # Bilinear pooling
+            fused_features = self.bilinear(
+                processed_image_features, processed_metadata_features
+            )
+
+        else:  # concatenation
+            fused_features = torch.cat(
+                [processed_image_features, processed_metadata_features], dim=1
+            )
 
         # Final classification
-        output = self.classifier(combined_features)
-
+        output = self.classifier(fused_features)
         return output
 
 
@@ -471,10 +746,14 @@ def collate_fn(batch):
 
 
 def train_fungi_network(
-    data_file, image_path, checkpoint_dir, pretrained_model_path=None
+    data_file,
+    image_path,
+    checkpoint_dir,
+    pretrained_model_path=None,
+    fusion_strategy="attention",
 ):
     """
-    Train the multimodal network with image and metadata features.
+    Train the enhanced multimodal network with image and metadata features.
     """
     # Ensure checkpoint directory exists
     ensure_folder(checkpoint_dir)
@@ -506,25 +785,34 @@ def train_fungi_network(
         pickle.dump(metadata_processor, f)
     print(f"Metadata processor saved to: {processor_path}")
 
-    # Initialize DataLoaders with metadata processor
+    # Initialize DataLoaders with metadata processor and augmentation
     train_dataset = FungiDataset(
         train_df,
         image_path,
         transform=get_transforms(data="train"),
         metadata_processor=metadata_processor,
+        metadata_dropout=0.3,  # 30% chance to drop metadata during training
     )
     valid_dataset = FungiDataset(
         val_df,
         image_path,
         transform=get_transforms(data="valid"),
         metadata_processor=metadata_processor,
+        metadata_dropout=0.0,  # No dropout during validation
     )
+
+    # Use smaller batch size due to increased model complexity
+    batch_size = 24
     train_loader = DataLoader(
-        train_dataset, batch_size=32, shuffle=True, num_workers=4, collate_fn=collate_fn
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=4,
+        collate_fn=collate_fn,
     )
     valid_loader = DataLoader(
         valid_dataset,
-        batch_size=32,
+        batch_size=batch_size,
         shuffle=False,
         num_workers=4,
         collate_fn=collate_fn,
@@ -536,19 +824,39 @@ def train_fungi_network(
         num_classes=len(train_df["taxonID_index"].unique()),
         metadata_dims=metadata_dims,
         pretrained_model_path=pretrained_model_path,
+        fusion_strategy=fusion_strategy,
     )
     model.to(device)
 
     print(f"Model created with {sum(p.numel() for p in model.parameters())} parameters")
+    print(f"Using fusion strategy: {fusion_strategy}")
 
-    # Define Optimization and Criterion
+    # Define Optimization and Criterion with different learning rates
+    # Lower learning rate for pre-trained backbone, higher for new components
+    backbone_params = []
+    new_params = []
+
+    for name, param in model.named_parameters():
+        if name.startswith("backbone"):
+            backbone_params.append(param)
+        else:
+            new_params.append(param)
+
     optimizer = AdamW(
-        model.parameters(), lr=1e-4, weight_decay=1e-5
-    )  # Lower LR for fine-tuning
+        [
+            {
+                "params": backbone_params,
+                "lr": 5e-5,
+            },  # Lower LR for pre-trained backbone
+            {"params": new_params, "lr": 1e-4},  # Higher LR for new components
+        ],
+        weight_decay=1e-5,
+    )
+
     criterion = nn.CrossEntropyLoss()
 
     # Early stopping setup
-    patience = 10
+    patience = 15  # Increased patience for more complex model
     patience_counter = 0
     best_loss = np.inf
     best_accuracy = 0.0
@@ -564,7 +872,9 @@ def train_fungi_network(
         epoch_start_time = time.time()
 
         # Training Loop
-        for images, labels, _, metadata in tqdm.tqdm(train_loader):
+        for images, labels, _, metadata in tqdm.tqdm(
+            train_loader, desc=f"Epoch {epoch + 1}"
+        ):
             images, labels = images.to(device), labels.to(device)
 
             # Move metadata to device
@@ -574,6 +884,10 @@ def train_fungi_network(
             outputs = model(images, metadata)
             loss = criterion(outputs, labels)
             loss.backward()
+
+            # Gradient clipping for stability
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
             optimizer.step()
 
             train_loss += loss.item()
@@ -688,7 +1002,11 @@ def evaluate_network_on_test_set(data_file, image_path, checkpoint_dir, session_
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = MultimodalFungiModel(num_classes=183, metadata_dims=metadata_dims)
+    model = MultimodalFungiModel(
+        num_classes=183,
+        metadata_dims=metadata_dims,
+        fusion_strategy="attention",  # Use same strategy as training
+    )
     model.load_state_dict(torch.load(best_trained_model))
     model.to(device)
 
@@ -764,7 +1082,11 @@ def evaluate_network_on_test_set_with_tta(
     )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = MultimodalFungiModel(num_classes=183, metadata_dims=metadata_dims)
+    model = MultimodalFungiModel(
+        num_classes=183,
+        metadata_dims=metadata_dims,
+        fusion_strategy="attention",  # Use same strategy as training
+    )
     model.load_state_dict(torch.load(best_trained_model))
     model.to(device)
 
@@ -872,7 +1194,7 @@ if __name__ == "__main__":
     data_file = str("/work3/monka/SummerSchool2025/metadata.csv")
 
     # Session name: Change session name for every experiment!
-    session = "EfficientNet_V2L_Multimodal_LateFusion"
+    session = "EfficientNet_V2L_LateFusion_Enhanced_Multimodal_Attention_improved"
 
     # Folder for results of this experiment based on session name:
     checkpoint_dir = os.path.join(f"/work3/monka/SummerSchool2025/results/{session}/")
@@ -880,12 +1202,25 @@ if __name__ == "__main__":
     # Path to pre-trained image-only model
     pretrained_model_path = "/work3/monka/SummerSchool2025/results/EfficientNet_V2L_CrossEntropy_New/best_accuracy.pth"
 
-    print(f"🍄 Starting Multimodal Training for {session}")
+    # Fusion strategy: "attention", "gated", "bilinear", or "concat"
+    fusion_strategy = "attention"
+
+    print(f"🍄 Starting Enhanced Multimodal Training for {session}")
     print(f"📁 Results will be saved to: {checkpoint_dir}")
     print(f"🖼️  Using pre-trained model: {pretrained_model_path}")
+    print(f"🔗 Fusion strategy: {fusion_strategy}")
+    print("🚀 Enhanced features:")
+    print("   ✓ Missing value indicators and normalization")
+    print("   ✓ Metadata dropout augmentation (30%)")
+    print("   ✓ Cross-attention fusion mechanism")
+    print("   ✓ Balanced feature dimensions (512 each)")
+    print("   ✓ Cyclical temporal encoding")
+    print("   ✓ Differential learning rates")
     print("=" * 80)
 
-    train_fungi_network(data_file, image_path, checkpoint_dir, pretrained_model_path)
+    train_fungi_network(
+        data_file, image_path, checkpoint_dir, pretrained_model_path, fusion_strategy
+    )
     evaluate_network_on_test_set(data_file, image_path, checkpoint_dir, session)
     evaluate_network_on_test_set_with_tta(
         data_file, image_path, checkpoint_dir, session, tta_rounds=10

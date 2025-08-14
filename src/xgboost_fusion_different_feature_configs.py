@@ -39,6 +39,9 @@ class ConfigurableXGBoostFusion:
             # Hyperparameter optimization
             "do_hyperparamopt": False,
             "hyperparamopt_max_evals": 50,
+            # TTA ensemble configuration
+            "tta_model_1_weight": 0.3,  # Weight for EfficientNet_V2L_CrossEntropy_New
+            "tta_model_2_weight": 0.7,  # Weight for EfficientNet_V2L_Multimodal_LateFusion
         }
 
         # Update with user config
@@ -83,6 +86,17 @@ class ConfigurableXGBoostFusion:
             print(
                 f"  🎯 Max evaluations: {self.feature_config['hyperparamopt_max_evals']}"
             )
+        print(f"  🎭 TTA Model 1 weight: {self.feature_config['tta_model_1_weight']}")
+        print(f"  🎭 TTA Model 2 weight: {self.feature_config['tta_model_2_weight']}")
+        tta_sum = (
+            self.feature_config["tta_model_1_weight"]
+            + self.feature_config["tta_model_2_weight"]
+        )
+        print(f"  📊 Combined TTA weights sum: {tta_sum}")
+        if abs(tta_sum - 1.0) > 0.001:
+            print(f"  ⚠️  Warning: TTA weights do not sum to 1.0 (sum = {tta_sum})")
+        else:
+            print("  ✅ TTA weights sum to 1.0")
 
     def load_data(self, features_dir):
         """Load the unified dataset with vector-based features."""
@@ -750,55 +764,102 @@ class ConfigurableXGBoostFusion:
 
                 use_tta_predictions_from_csv = True
                 if use_tta_predictions_from_csv:
-                    # Instead of using the class probabilities, load TTA predictions from CSV
-                    tta_csv_path = "/work3/monka/SummerSchool2025/results/EfficientNet_V2L_CrossEntropy_New/test_probabilities_tta_64.csv"
-                    print(f"  🔄 Loading TTA predictions from: {tta_csv_path}")
+                    # Load TTA predictions from multiple CSV files and combine them
+                    tta_csv_paths = [
+                        "/work3/monka/SummerSchool2025/results/EfficientNet_V2L_CrossEntropy_New/test_probabilities_tta_64.csv",
+                        "/work3/monka/SummerSchool2025/results/EfficientNet_V2L_Multimodal_LateFusion/test_probabilities_tta_64.csv",
+                    ]
+                    tta_weights = [
+                        self.feature_config["tta_model_1_weight"],
+                        self.feature_config["tta_model_2_weight"],
+                    ]  # Weights for combining the TTA predictions from config
 
-                    # Load TTA predictions CSV
-                    tta_df = pd.read_csv(tta_csv_path)
+                    print(
+                        f"  🔄 Loading and combining TTA predictions from {len(tta_csv_paths)} models..."
+                    )
 
                     # Get test filenames in the current order
                     test_filenames = test_df["filename"].values
 
-                    # Create mapping from filename to TTA predictions
-                    # First column is filename, rest are class probabilities
-                    tta_filename_col = tta_df.columns[
-                        0
-                    ]  # First column contains filenames
-                    tta_prob_cols = tta_df.columns[1:]  # Rest are probability columns
+                    combined_image_probabilities = None
 
-                    # Create a mapping from filename to probabilities
-                    tta_dict = {}
-                    for idx, row in tta_df.iterrows():
-                        filename = row[tta_filename_col]
-                        probabilities = row[tta_prob_cols].values
-                        tta_dict[filename] = probabilities
-
-                    # Order TTA predictions to match test data order
-                    tta_predictions_ordered = []
-                    missing_files = []
-
-                    for filename in test_filenames:
-                        if filename in tta_dict:
-                            tta_predictions_ordered.append(tta_dict[filename])
-                        else:
-                            missing_files.append(filename)
-                            # Use zeros as fallback if file not found in TTA predictions
-                            tta_predictions_ordered.append(np.zeros(len(tta_prob_cols)))
-
-                    if missing_files:
+                    for i, (tta_csv_path, weight) in enumerate(
+                        zip(tta_csv_paths, tta_weights)
+                    ):
                         print(
-                            f"  ⚠️  Warning: {len(missing_files)} files not found in TTA predictions, using zeros as fallback"
+                            f"  📁 Loading TTA predictions from: {tta_csv_path} (weight: {weight})"
                         )
-                        print(f"  First few missing: {missing_files[:5]}")
 
-                    # Convert to numpy array and replace image_probabilities
-                    image_probabilities = np.array(tta_predictions_ordered)
+                        # Load TTA predictions CSV
+                        tta_df = pd.read_csv(tta_csv_path)
+
+                        # Create mapping from filename to TTA predictions
+                        # First column is filename, rest are class probabilities
+                        tta_filename_col = tta_df.columns[
+                            0
+                        ]  # First column contains filenames
+                        tta_prob_cols = tta_df.columns[
+                            1:
+                        ]  # Rest are probability columns
+
+                        # Create a mapping from filename to probabilities
+                        tta_dict = {}
+                        for idx, row in tta_df.iterrows():
+                            filename = row[tta_filename_col]
+                            probabilities = row[tta_prob_cols].values
+                            tta_dict[filename] = probabilities
+
+                        # Order TTA predictions to match test data order
+                        tta_predictions_ordered = []
+                        missing_files = []
+
+                        for filename in test_filenames:
+                            if filename in tta_dict:
+                                tta_predictions_ordered.append(tta_dict[filename])
+                            else:
+                                missing_files.append(filename)
+                                # Use zeros as fallback if file not found in TTA predictions
+                                tta_predictions_ordered.append(
+                                    np.zeros(len(tta_prob_cols))
+                                )
+
+                        if missing_files:
+                            print(
+                                f"    ⚠️  Warning: {len(missing_files)} files not found in TTA predictions for model {i + 1}, using zeros as fallback"
+                            )
+                            print(f"    First few missing: {missing_files[:5]}")
+
+                        # Convert to numpy array
+                        current_tta_predictions = np.array(tta_predictions_ordered)
+                        print(
+                            f"    ✅ Loaded TTA predictions shape: {current_tta_predictions.shape}"
+                        )
+
+                        # Normalize current predictions to ensure they sum to 1
+                        current_tta_predictions = (
+                            current_tta_predictions
+                            / current_tta_predictions.sum(axis=1, keepdims=True)
+                        )
+
+                        # Combine with weighted average
+                        if combined_image_probabilities is None:
+                            combined_image_probabilities = (
+                                weight * current_tta_predictions
+                            )
+                        else:
+                            combined_image_probabilities += (
+                                weight * current_tta_predictions
+                            )
+                        print(weight)
+
+                    # Use the combined probabilities
+                    image_probabilities = combined_image_probabilities
                     print(
-                        f"  ✅ Loaded TTA predictions shape: {image_probabilities.shape}"
+                        f"  🔗 Combined TTA predictions shape: {image_probabilities.shape}"
                     )
+                    print(f"  ⚖️  Weights used: {tta_weights}")
 
-                # Normalize to ensure they sum to 1
+                # Final normalization to ensure they sum to 1 (in case of any numerical errors)
                 image_probabilities = image_probabilities / image_probabilities.sum(
                     axis=1, keepdims=True
                 )
@@ -892,6 +953,12 @@ class ConfigurableXGBoostFusion:
             suffix_parts.append("META")
         if config.get("do_hyperparamopt", False):
             suffix_parts.append("HYPEROPT")
+
+        # Add TTA weights to suffix if they're not default values
+        tta_w1 = config.get("tta_model_1_weight", 0.3)
+        tta_w2 = config.get("tta_model_2_weight", 0.7)
+        if tta_w1 != 0.3 or tta_w2 != 0.7:
+            suffix_parts.append(f"TTA_{tta_w1:.1f}_{tta_w2:.1f}")
 
         return "_" + "+".join(suffix_parts) if suffix_parts else "_NONE"
 
@@ -987,10 +1054,16 @@ def run_experiment(
 def main():
     """Run experiments with different feature combinations."""
     features_dir = "/work3/monka/SummerSchool2025/results/EfficientNet_V2L_CrossEntropy/extracted_features/"
-    output_dir = "/work3/monka/SummerSchool2025/results/XGBoost_Configurable_Experiments_WithUpdatedMetadata_15/"
+    output_dir = "/work3/monka/SummerSchool2025/results/XGBoost_Configurable_Experiments_WithUpdatedMetadata_18/"
 
     print("🍄 Configurable XGBoost Fusion - Feature Ablation Study")
     print("=" * 70)
+
+    # TTA Weight Configuration Examples:
+    # You can now customize TTA model weights in your experiment configs:
+    # "tta_model_1_weight": 0.3,  # Weight for EfficientNet_V2L_CrossEntropy_New
+    # "tta_model_2_weight": 0.7,  # Weight for EfficientNet_V2L_Multimodal_LateFusion
+    # The weights will be automatically normalized and included in model naming.
 
     # Define different configurations to test
     experiments = [
@@ -1046,18 +1119,74 @@ def main():
         #         "metadata_fusion_temperature": 1.0,  # Configurable temperature for smoothing
         #     },
         # },
-        {
-            "name": "Metadata Multiply Image Fusion 1.5",
-            "config": {
-                "use_image_features": False,  # Will be forced in the fusion strategy
-                "use_class_probabilities": False,
-                "use_prediction_confidence": False,
-                "use_prediction_entropy": False,
-                "use_metadata_features": True,
-                "metadata_multiply_image_fusion": True,
-                "metadata_fusion_temperature": 1.5,  # Configurable temperature for smoothing
-            },
-        },
+        # {
+        #     "name": "Metadata Multiply Image Fusion 1.5",
+        #     "config": {
+        #         "use_image_features": False,  # Will be forced in the fusion strategy
+        #         "use_class_probabilities": False,
+        #         "use_prediction_confidence": False,
+        #         "use_prediction_entropy": False,
+        #         "use_metadata_features": True,
+        #         "metadata_multiply_image_fusion": True,
+        #         "metadata_fusion_temperature": 1.5,  # Configurable temperature for smoothing
+        #     },
+        # },
+        # {
+        #     "name": "Metadata Multiply Image Fusion 2.0 with TTA weights 0.4/0.6",
+        #     "config": {
+        #         "use_image_features": False,  # Will be forced in the fusion strategy
+        #         "use_class_probabilities": False,
+        #         "use_prediction_confidence": False,
+        #         "use_prediction_entropy": False,
+        #         "use_metadata_features": True,
+        #         "metadata_multiply_image_fusion": True,
+        #         "metadata_fusion_temperature": 2.0,
+        #         "tta_model_1_weight": 0.4,  # Custom TTA weight for model 1
+        #         "tta_model_2_weight": 0.6,  # Custom TTA weight for model 2
+        #     },
+        # },
+        # {
+        #     "name": "Metadata Multiply Image Fusion 2.0 with TTA weights 0.0/1.0",
+        #     "config": {
+        #         "use_image_features": False,
+        #         "use_class_probabilities": False,
+        #         "use_prediction_confidence": False,
+        #         "use_prediction_entropy": False,
+        #         "use_metadata_features": True,
+        #         "metadata_multiply_image_fusion": True,
+        #         "metadata_fusion_temperature": 2.0,
+        #         "tta_model_1_weight": 0.0,  # Favor multimodal model more
+        #         "tta_model_2_weight": 1.0,
+        #     },
+        # },
+        # {
+        #     "name": "Metadata Multiply Image Fusion 2.0 with TTA weights 0.2/0.8",
+        #     "config": {
+        #         "use_image_features": False,
+        #         "use_class_probabilities": False,
+        #         "use_prediction_confidence": False,
+        #         "use_prediction_entropy": False,
+        #         "use_metadata_features": True,
+        #         "metadata_multiply_image_fusion": True,
+        #         "metadata_fusion_temperature": 2.0,
+        #         "tta_model_1_weight": 0.2,  # Favor multimodal model more
+        #         "tta_model_2_weight": 0.8,
+        #     },
+        # },
+        # {
+        #     "name": "Metadata Multiply Image Fusion 2.0 with TTA weights 0.5/0.5",
+        #     "config": {
+        #         "use_image_features": False,
+        #         "use_class_probabilities": False,
+        #         "use_prediction_confidence": False,
+        #         "use_prediction_entropy": False,
+        #         "use_metadata_features": True,
+        #         "metadata_multiply_image_fusion": True,
+        #         "metadata_fusion_temperature": 2.0,
+        #         "tta_model_1_weight": 0.5,  # Equal weights
+        #         "tta_model_2_weight": 0.5,
+        #     },
+        # },
         # {
         #     "name": "Metadata Multiply Image Fusion 1.75",
         #     "config": {
@@ -1070,18 +1199,18 @@ def main():
         #         "metadata_fusion_temperature": 1.75,  # Configurable temperature for smoothing
         #     },
         # },
-        # {
-        #     "name": "Metadata Multiply Image Fusion 2.0",
-        #     "config": {
-        #         "use_image_features": False,
-        #         "use_class_probabilities": False,
-        #         "use_prediction_confidence": False,
-        #         "use_prediction_entropy": False,
-        #         "use_metadata_features": True,
-        #         "metadata_multiply_image_fusion": True,
-        #         "metadata_fusion_temperature": 2.0,  # Configurable temperature for smoothing
-        #     },
-        # },
+        {
+            "name": "Metadata Multiply Image Fusion 2.0",
+            "config": {
+                "use_image_features": False,
+                "use_class_probabilities": False,
+                "use_prediction_confidence": False,
+                "use_prediction_entropy": False,
+                "use_metadata_features": True,
+                "metadata_multiply_image_fusion": True,
+                "metadata_fusion_temperature": 2.0,  # Configurable temperature for smoothing
+            },
+        },
         # {
         #     "name": "Metadata Multiply Image Fusion 2.5",
         #     "config": {
