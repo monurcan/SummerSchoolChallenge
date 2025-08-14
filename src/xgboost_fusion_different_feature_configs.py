@@ -390,17 +390,17 @@ class ConfigurableXGBoostFusion:
             "device": "cuda",
             "verbosity": 1,
             # Feature sampling to prevent image features from dominating
-            "colsample_bytree": 0.3,  # Sample fewer features per tree to give metadata a chance
-            "colsample_bylevel": 0.7,  # Additional feature sampling per level
-            "colsample_bynode": 0.8,  # Additional feature sampling per node
-            # Regularization to prevent overfitting on high-dim image features
-            "reg_alpha": 10.0,  # L1 regularization
-            "reg_lambda": 10.0,  # L2 regularization
-            "max_depth": 6,  # Shallower trees to prevent overfitting
-            "min_child_weight": 3,  # Higher minimum samples per leaf
-            "learning_rate": 0.1,  # Lower learning rate for better generalization
-            "n_estimators": 1000,  # More trees with lower learning rate
-            "subsample": 0.8,  # Row subsampling
+            # "colsample_bytree": 0.3,  # Sample fewer features per tree to give metadata a chance
+            # "colsample_bylevel": 0.7,  # Additional feature sampling per level
+            # "colsample_bynode": 0.8,  # Additional feature sampling per node
+            # # Regularization to prevent overfitting on high-dim image features
+            # "reg_alpha": 10.0,  # L1 regularization
+            # "reg_lambda": 10.0,  # L2 regularization
+            # "max_depth": 6,  # Shallower trees to prevent overfitting
+            # "min_child_weight": 3,  # Higher minimum samples per leaf
+            # "learning_rate": 0.1,  # Lower learning rate for better generalization
+            # "n_estimators": 1000,  # More trees with lower learning rate
+            # "subsample": 0.8,  # Row subsampling
         }
 
         # Train model
@@ -814,7 +814,7 @@ def run_experiment(
 def main():
     """Run experiments with different feature combinations."""
     features_dir = "/work3/monka/SummerSchool2025/results/EfficientNet_V2L_CrossEntropy/extracted_features/"
-    output_dir = "/work3/monka/SummerSchool2025/results/XGBoost_Configurable_Experiments_WithUpdatedMetadata_7/"
+    output_dir = "/work3/monka/SummerSchool2025/results/XGBoost_Configurable_Experiments_WithUpdatedMetadata_9/"
 
     print("🍄 Configurable XGBoost Fusion - Feature Ablation Study")
     print("=" * 70)
@@ -935,20 +935,19 @@ def main():
         #         "target_image_dimensions": 10,
         #     },
         # },
-        {
-            "name": "Metadat + Compressed Image",
-            "config": {
-                "use_image_features": True,  # Will be forced in the fusion strategy
-                "use_class_probabilities": False,
-                "use_prediction_confidence": False,
-                "use_prediction_entropy": False,
-                "use_metadata_features": True,
-                "metadata_multiply_image_fusion": True,
-                "metadata_fusion_temperature": 2.0,  # Configurable temperature for smoothing
-                "reduce_image_dimensions": True,
-                "target_image_dimensions": 10,
-            },
-        },
+        # {
+        #     "name": "Metadat + Compressed Image",
+        #     "config": {
+        #         "use_image_features": True,  # Will be forced in the fusion strategy
+        #         "use_class_probabilities": False,
+        #         "use_prediction_confidence": False,
+        #         "use_prediction_entropy": False,
+        #         "use_metadata_features": True,
+        #         "metadata_multiply_image_fusion": False,
+        #         "reduce_image_dimensions": True,
+        #         "target_image_dimensions": 10,
+        #     },
+        # },
         # {
         #     "name": "Metadata Multiply Image Fusion 4.0",
         #     "config": {
