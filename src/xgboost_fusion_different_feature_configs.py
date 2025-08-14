@@ -36,6 +36,9 @@ class ConfigurableXGBoostFusion:
             # New options for balancing image vs metadata features
             "reduce_image_dimensions": True,
             "target_image_dimensions": 100,  # Reduce to this many dimensions
+            # Hyperparameter optimization
+            "do_hyperparamopt": False,
+            "hyperparamopt_max_evals": 50,
         }
 
         # Update with user config
@@ -72,6 +75,13 @@ class ConfigurableXGBoostFusion:
         if self.feature_config.get("metadata_multiply_image_fusion", False):
             print(
                 f"  🌡️  Fusion temperature: {self.feature_config['metadata_fusion_temperature']}"
+            )
+        print(
+            f"  🔍 Hyperparameter optimization: {self.feature_config['do_hyperparamopt']}"
+        )
+        if self.feature_config.get("do_hyperparamopt", False):
+            print(
+                f"  🎯 Max evaluations: {self.feature_config['hyperparamopt_max_evals']}"
             )
 
     def load_data(self, features_dir):
@@ -301,6 +311,131 @@ class ConfigurableXGBoostFusion:
 
         return final_X
 
+    def define_hyperparameter_space(self, num_classes):
+        """Define the hyperparameter search space for XGBoost."""
+        from hyperopt import hp
+
+        space = {
+            "max_depth": hp.quniform("max_depth", 3, 18, 1),
+            "gamma": hp.uniform("gamma", 1, 9),
+            "reg_alpha": hp.quniform("reg_alpha", 40, 180, 1),
+            "reg_lambda": hp.uniform("reg_lambda", 0, 1),
+            "colsample_bytree": hp.uniform("colsample_bytree", 0.5, 1),
+            "min_child_weight": hp.quniform("min_child_weight", 0, 10, 1),
+            "n_estimators": 180,
+            "learning_rate": hp.uniform("learning_rate", 0.01, 0.3),
+            "subsample": hp.uniform("subsample", 0.6, 1.0),
+            "seed": 0,
+            # Fixed parameters
+            "objective": "multi:softprob",
+            "num_class": num_classes,
+            "random_state": 42,
+            "tree_method": "gpu_hist",
+            "enable_categorical": True,
+            "device": "cuda",
+            "verbosity": 0,  # Reduce verbosity during hyperopt
+        }
+
+        return space
+
+    def hyperopt_objective(self, params, X_train, y_train, X_val, y_val):
+        """Objective function for hyperparameter optimization."""
+        from hyperopt import STATUS_OK
+
+        # Convert discrete parameters to int
+        params["max_depth"] = int(params["max_depth"])
+        params["reg_alpha"] = int(params["reg_alpha"])
+        params["min_child_weight"] = int(params["min_child_weight"])
+        params["n_estimators"] = int(params["n_estimators"])
+
+        try:
+            # Create and train model with current parameters
+            model = XGBClassifier(**params)
+            model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
+
+            # Get validation predictions
+            val_predictions = model.predict(X_val)
+
+            # Calculate F1 score (we want to maximize this, so return negative)
+            f1 = f1_score(y_val, val_predictions, average="weighted")
+
+            # Return negative F1 because hyperopt minimizes
+            return {"loss": -f1, "status": STATUS_OK}
+
+        except Exception as e:
+            print(f"Error in hyperopt objective: {e}")
+            # Return a large loss if there's an error
+            return {"loss": 1.0, "status": STATUS_OK}
+
+    def optimize_hyperparameters(self, X_train, y_train, X_val, y_val):
+        """Perform hyperparameter optimization using Hyperopt."""
+        from hyperopt import fmin, tpe, Trials
+
+        print("🔍 Starting hyperparameter optimization...")
+
+        # Define search space
+        space = self.define_hyperparameter_space(len(np.unique(y_train)))
+
+        # Create trials object to store results
+        trials = Trials()
+
+        # Define objective function with data
+        def objective(params):
+            return self.hyperopt_objective(params, X_train, y_train, X_val, y_val)
+
+        # Run optimization
+        max_evals = self.feature_config.get("hyperparamopt_max_evals", 50)
+
+        print(f"  🎯 Running {max_evals} evaluations...")
+        best = fmin(
+            fn=objective,
+            space=space,
+            algo=tpe.suggest,
+            max_evals=max_evals,
+            trials=trials,
+            verbose=True,
+        )
+
+        # Convert best parameters back to correct types
+        best["max_depth"] = int(best["max_depth"])
+        best["reg_alpha"] = int(best["reg_alpha"])
+        best["min_child_weight"] = int(best["min_child_weight"])
+        best["n_estimators"] = int(best.get("n_estimators", 180))
+
+        # Add fixed parameters
+        best.update(
+            {
+                "objective": "multi:softprob",
+                "num_class": len(np.unique(y_train)),
+                "random_state": 42,
+                "tree_method": "gpu_hist",
+                "enable_categorical": True,
+                "device": "cuda",
+                "verbosity": 1,
+                "seed": 0,
+            }
+        )
+
+        # Get best F1 score
+        best_f1 = -min(trials.losses())
+
+        print(f"  ✅ Best validation F1 score: {best_f1:.4f}")
+        print("  🏆 Best parameters:")
+        for key, value in best.items():
+            if key not in [
+                "objective",
+                "num_class",
+                "random_state",
+                "tree_method",
+                "enable_categorical",
+                "device",
+                "verbosity",
+                "seed",
+            ]:
+                print(f"    {key}: {value}")
+
+        return best, best_f1, trials
+
     def train(self, features_dir, debug_subset=None):
         """
         Train XGBoost model with configurable features.
@@ -350,7 +485,7 @@ class ConfigurableXGBoostFusion:
         # Split into train and validation sets
         print("Splitting data into train/validation...")
         train_split, val_split = train_test_split(
-            train_df, test_size=0.02, random_state=42, stratify=train_df["true_label"]
+            train_df, test_size=0.015, random_state=42, stratify=train_df["true_label"]
         )
 
         print(f"Train split: {len(train_split)} samples")
@@ -380,28 +515,56 @@ class ConfigurableXGBoostFusion:
         print(f"Missing values in train: {X_train.isnull().sum().sum()}")
         print(f"Missing values in validation: {X_val.isnull().sum().sum()}")
 
-        # XGBoost parameters - adjusted to balance image and metadata features
-        params = {
-            "objective": "multi:softprob",
-            "num_class": len(np.unique(y_train_encoded)),
-            "random_state": 42,
-            "tree_method": "gpu_hist",
-            "enable_categorical": True,
-            "device": "cuda",
-            "verbosity": 1,
-            # Feature sampling to prevent image features from dominating
-            # "colsample_bytree": 0.3,  # Sample fewer features per tree to give metadata a chance
-            # "colsample_bylevel": 0.7,  # Additional feature sampling per level
-            # "colsample_bynode": 0.8,  # Additional feature sampling per node
-            # # Regularization to prevent overfitting on high-dim image features
-            # "reg_alpha": 10.0,  # L1 regularization
-            # "reg_lambda": 10.0,  # L2 regularization
-            # "max_depth": 6,  # Shallower trees to prevent overfitting
-            # "min_child_weight": 3,  # Higher minimum samples per leaf
-            # "learning_rate": 0.1,  # Lower learning rate for better generalization
-            # "n_estimators": 1000,  # More trees with lower learning rate
-            # "subsample": 0.8,  # Row subsampling
-        }
+        # XGBoost parameters - use hyperparameter optimization if enabled
+        if self.feature_config.get("do_hyperparamopt", False):
+            print("🔍 Hyperparameter optimization enabled - finding best parameters...")
+            best_params, best_f1, trials = self.optimize_hyperparameters(
+                X_train, y_train_encoded, X_val, y_val_encoded
+            )
+            params = best_params
+
+            # Save hyperopt results
+            hyperopt_results = {
+                "best_params": best_params,
+                "best_validation_f1": best_f1,
+                "trials_count": len(trials.trials),
+            }
+
+            # Store hyperopt results for saving later
+            self.hyperopt_results = hyperopt_results
+
+        else:
+            # Default parameters
+            params = {
+                "objective": "multi:softprob",
+                "num_class": len(np.unique(y_train_encoded)),
+                "random_state": 42,
+                "tree_method": "gpu_hist",
+                "enable_categorical": True,
+                "device": "cuda",
+                "verbosity": 1,
+                # "colsample_bytree": 0.9874126599523046,
+                # "gamma": 4.172609851489677,
+                # "learning_rate": 0.13331391004782508,
+                # "max_depth": 5,
+                # "min_child_weight": 2,
+                # "reg_alpha": 84,
+                # "reg_lambda": 0.6672388027430995,
+                # "subsample": 0.818384193819345,
+                # "n_estimators": 180,
+                # Feature sampling to prevent image features from dominating
+                # "colsample_bytree": 0.3,  # Sample fewer features per tree to give metadata a chance
+                # "colsample_bylevel": 0.7,  # Additional feature sampling per level
+                # "colsample_bynode": 0.8,  # Additional feature sampling per node
+                # # Regularization to prevent overfitting on high-dim image features
+                # "reg_alpha": 10.0,  # L1 regularization
+                # "reg_lambda": 10.0,  # L2 regularization
+                # "max_depth": 6,  # Shallower trees to prevent overfitting
+                # "min_child_weight": 3,  # Higher minimum samples per leaf
+                # "learning_rate": 0.1,  # Lower learning rate for better generalization
+                # "n_estimators": 1000,  # More trees with lower learning rate
+                # "subsample": 0.8,  # Row subsampling
+            }
 
         # Train model
         print("Training XGBoost model...")
@@ -538,7 +701,7 @@ class ConfigurableXGBoostFusion:
 
         print("Loading test data...")
         df, feature_info = self.load_data(features_dir)
-        test_df = df[df["dataset"] == "test"].copy()
+        test_df = df[(df["dataset"] == "test") | (df["dataset"] == "final")].copy()
 
         print(f"Test samples: {len(test_df)}")
 
@@ -727,6 +890,8 @@ class ConfigurableXGBoostFusion:
             suffix_parts.append("ENT")
         if config["use_metadata_features"]:
             suffix_parts.append("META")
+        if config.get("do_hyperparamopt", False):
+            suffix_parts.append("HYPEROPT")
 
         return "_" + "+".join(suffix_parts) if suffix_parts else "_NONE"
 
@@ -752,6 +917,10 @@ class ConfigurableXGBoostFusion:
         # Save PCA model if it exists
         if hasattr(self, "image_pca"):
             model_data["image_pca"] = self.image_pca
+
+        # Save hyperparameter optimization results if they exist
+        if hasattr(self, "hyperopt_results"):
+            model_data["hyperopt_results"] = self.hyperopt_results
 
         with open(model_file, "wb") as f:
             pickle.dump(model_data, f)
@@ -779,6 +948,10 @@ class ConfigurableXGBoostFusion:
                     "val_accuracy": float(val_accuracy),
                 }
             )
+
+        # Add hyperparameter optimization results if available
+        if hasattr(self, "hyperopt_results"):
+            metrics_data["hyperopt_results"] = self.hyperopt_results
 
         with open(metrics_file, "w") as f:
             json.dump(metrics_data, f, indent=2)
@@ -814,7 +987,7 @@ def run_experiment(
 def main():
     """Run experiments with different feature combinations."""
     features_dir = "/work3/monka/SummerSchool2025/results/EfficientNet_V2L_CrossEntropy/extracted_features/"
-    output_dir = "/work3/monka/SummerSchool2025/results/XGBoost_Configurable_Experiments_WithUpdatedMetadata_9/"
+    output_dir = "/work3/monka/SummerSchool2025/results/XGBoost_Configurable_Experiments_WithUpdatedMetadata_14_plusnotmult/"
 
     print("🍄 Configurable XGBoost Fusion - Feature Ablation Study")
     print("=" * 70)
@@ -861,42 +1034,42 @@ def main():
         #         "use_metadata_features": True,
         #     },
         # },
-        # {
-        #     "name": "Metadata Multiply Image Fusion 1.0",
-        #     "config": {
-        #         "use_image_features": False,  # Will be forced in the fusion strategy
-        #         "use_class_probabilities": False,
-        #         "use_prediction_confidence": False,
-        #         "use_prediction_entropy": False,
-        #         "use_metadata_features": True,
-        #         "metadata_multiply_image_fusion": True,
-        #         "metadata_fusion_temperature": 1.0,  # Configurable temperature for smoothing
-        #     },
-        # },
-        # {
-        #     "name": "Metadata Multiply Image Fusion 1.5",
-        #     "config": {
-        #         "use_image_features": False,  # Will be forced in the fusion strategy
-        #         "use_class_probabilities": False,
-        #         "use_prediction_confidence": False,
-        #         "use_prediction_entropy": False,
-        #         "use_metadata_features": True,
-        #         "metadata_multiply_image_fusion": True,
-        #         "metadata_fusion_temperature": 1.5,  # Configurable temperature for smoothing
-        #     },
-        # },
-        # {
-        #     "name": "Metadata Multiply Image Fusion 2.5",
-        #     "config": {
-        #         "use_image_features": False,  # Will be forced in the fusion strategy
-        #         "use_class_probabilities": False,
-        #         "use_prediction_confidence": False,
-        #         "use_prediction_entropy": False,
-        #         "use_metadata_features": True,
-        #         "metadata_multiply_image_fusion": True,
-        #         "metadata_fusion_temperature": 2.5,  # Configurable temperature for smoothing
-        #     },
-        # },
+        {
+            "name": "Metadata Multiply Image Fusion 1.0",
+            "config": {
+                "use_image_features": False,  # Will be forced in the fusion strategy
+                "use_class_probabilities": False,
+                "use_prediction_confidence": False,
+                "use_prediction_entropy": False,
+                "use_metadata_features": True,
+                "metadata_multiply_image_fusion": True,
+                "metadata_fusion_temperature": 1.0,  # Configurable temperature for smoothing
+            },
+        },
+        {
+            "name": "Metadata Multiply Image Fusion 1.5",
+            "config": {
+                "use_image_features": False,  # Will be forced in the fusion strategy
+                "use_class_probabilities": False,
+                "use_prediction_confidence": False,
+                "use_prediction_entropy": False,
+                "use_metadata_features": True,
+                "metadata_multiply_image_fusion": True,
+                "metadata_fusion_temperature": 1.5,  # Configurable temperature for smoothing
+            },
+        },
+        {
+            "name": "Metadata Multiply Image Fusion 1.75",
+            "config": {
+                "use_image_features": False,  # Will be forced in the fusion strategy
+                "use_class_probabilities": False,
+                "use_prediction_confidence": False,
+                "use_prediction_entropy": False,
+                "use_metadata_features": True,
+                "metadata_multiply_image_fusion": True,
+                "metadata_fusion_temperature": 1.75,  # Configurable temperature for smoothing
+            },
+        },
         {
             "name": "Metadata Multiply Image Fusion 2.0",
             "config": {
@@ -909,6 +1082,31 @@ def main():
                 "metadata_fusion_temperature": 2.0,  # Configurable temperature for smoothing
             },
         },
+        {
+            "name": "Metadata Multiply Image Fusion 2.5",
+            "config": {
+                "use_image_features": False,  # Will be forced in the fusion strategy
+                "use_class_probabilities": False,
+                "use_prediction_confidence": False,
+                "use_prediction_entropy": False,
+                "use_metadata_features": True,
+                "metadata_multiply_image_fusion": True,
+                "metadata_fusion_temperature": 2.5,  # Configurable temperature for smoothing
+            },
+        },
+        # {
+        #     "name": "Metadata with HyperOpt",
+        #     "config": {
+        #         "use_image_features": False,
+        #         "use_class_probabilities": False,
+        #         "use_prediction_confidence": False,
+        #         "use_prediction_entropy": False,
+        #         "use_metadata_features": True,
+        #         "metadata_multiply_image_fusion": False,
+        #         "do_hyperparamopt": True,
+        #         "hyperparamopt_max_evals": 40,  # Reduced for faster execution
+        #     },
+        # },
         # {
         #     "name": "Metadata Multiply Image Fusion 2.0 with Class Probs",
         #     "config": {
